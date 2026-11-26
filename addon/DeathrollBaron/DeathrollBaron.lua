@@ -948,8 +948,31 @@ local function Build()
     end)
     W.allin:SetPoint("TOPRIGHT", -42, -396)
 
-    W.roll = Btn(frame, "ROLL", 368, 40, 16, function() DoRoll() end)
+    W.roll = Btn(frame, "ROLL", 368, 40, 16, function(_, button)
+        if button == "RightButton" then
+            ns.auto = not ns.auto
+            ns.autoKey, ns.autoT = nil, 0
+            ns.Refresh()
+            return
+        end
+        -- a plain click on a live auto hand stops the next deal, not this one
+        if ns.auto and not IsShiftKeyDown() and state and not state.finished then
+            ns.auto = false
+            ns.Refresh()
+            return
+        end
+        DoRoll()
+    end)
     W.roll:SetPoint("TOP", 0, -424)
+    W.roll:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    W.roll:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("ROLL", GOLD[1], GOLD[2], GOLD[3])
+        GameTooltip:AddLine("Left click puts up the stake.", 1, 1, 1)
+        GameTooltip:AddLine("Right click turns auto-spin on: the same stake is dealt again after every hand, until you stop it or go broke.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    W.roll:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- under the button, in its own band: above it would clip the quick buttons
     W.hint = FS(frame, DIM, 10)
@@ -1287,11 +1310,18 @@ function ns.Refresh()
         W.roll:SetText("ROLL ONE   (click)")
         W.hint:SetText("manual: one roll per click, shift or not")
     elseif live then
-        W.roll:SetText("ROLLING")
-        W.hint:SetText("shift-click to take over")
+        W.roll:SetText(ns.auto and "ROLLING   .   AUTO ON" or "ROLLING")
+        W.hint:SetText(ns.auto and "click to stop after this hand" or "shift-click to take over")
     else
-        W.roll:SetText("ROLL   " .. Money(ns.wager))
-        W.hint:SetText("click to auto-roll  .  shift-click to roll it yourself")
+        W.roll:SetText((ns.auto and "AUTO ON   .   ROLL " or "ROLL   ") .. Money(ns.wager))
+        W.hint:SetText(ns.auto and "the same stake again in a moment  .  right-click to stop"
+            or "right-click: auto-spin  .  shift-click: roll one at a time")
+    end
+    -- the button carries its own state: green and named while auto is on
+    local rollFS = W.roll:GetFontString()
+    if rollFS then
+        local rc = ns.auto and GREEN or BONE
+        rollFS:SetTextColor(rc[1], rc[2], rc[3])
     end
 
     -- no loan while a hand is live: the stake is already committed
@@ -1908,4 +1938,52 @@ jdriver:SetScript("OnUpdate", function(_, el)
         return
     end
     J.Step(el)
+end)
+
+---------------------------------------------------------------------
+-- auto-spin: the table keeps dealing
+-- Session-only on purpose: it is off at login and it stops when the
+-- frame closes, so it can never spend a purse unattended. The delay is
+-- longer than the ceremony's hold, so a reveal is never cut short.
+---------------------------------------------------------------------
+ns.auto = false
+ns.autoDelay = 1.1
+
+function ns.AutoDeal()
+    local cfg = BuildConfig(ns.selectedRung)
+    local ok = not DB.ended and DB.gold >= cfg.minWager and ns.wager <= DB.gold
+        and StartMatch(ns.selectedRung, ns.wager, false)
+    if not ok then ns.auto = false end
+    ns.Refresh()
+end
+
+function ns.AutoTick(el)
+    if not ns.auto then return end
+    if DB.ended or (frame and not frame:IsShown()) then
+        ns.auto = false
+        return
+    end
+    local s = state
+    if s and not s.finished then
+        ns.autoKey, ns.autoT = nil, 0
+        return
+    end
+    if s and s.manual then
+        ns.auto = false
+        return
+    end
+    local key = s or 0
+    if ns.autoKey ~= key then
+        ns.autoKey, ns.autoT = key, 0
+        return
+    end
+    ns.autoT = ns.autoT + el
+    if ns.autoT < ns.autoDelay then return end
+    ns.autoKey, ns.autoT = nil, 0
+    ns.AutoDeal()
+end
+
+ns.autoDriver = CreateFrame("Frame")
+ns.autoDriver:SetScript("OnUpdate", function(_, el)
+    ns.AutoTick(el)
 end)

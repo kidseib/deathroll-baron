@@ -10,6 +10,21 @@ versioning is [SemVer](https://semver.org/).
 - Wager slider to replace the stepper (needs a thumb texture).
 - Challenge your current target; addon-vs-addon multiplayer.
 
+## [0.0.11] — 2026-11-26
+
+The table never waits for you to press anything twice.
+
+- **Auto-spin lives on the ROLL button.** Right-click it and the button turns green and names itself
+  (`AUTO ON . ROLL 50`); the hint under it says what the next click will do, and the tooltip spells
+  both clicks out. Every hand that ends deals the same stake again, one beat after the ceremony, so
+  the reveal is never cut short.
+- **Stopping is one click.** A plain click during an auto hand turns the deal off and lets that hand
+  finish, since the stake is already on the table and there is nothing to cancel. Taking over with
+  shift-click ends it at the end of the hand too.
+- **It stops itself at the edge.** No purse for the stake, a bust, or a closed table all end it
+  instead of retrying, and it is session-only: off at login, so it can never spend a purse
+  unattended.
+
 ## [0.0.10] — 2026-11-26
 
 The table learns to hold its breath: the ticker, the number and the one all get their own timing.
