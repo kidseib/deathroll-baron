@@ -7,28 +7,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: dump tail
-        run: |
-          tail -n 520 addon/DeathrollBaron/DeathrollBaron.lua > tail.txt
-          wc -c tail.txt
-          git config user.name bot
-          git config user.email bot@users.noreply.github.com
-          git add tail.txt
-          git commit -m "ci: tail snapshot"
-          git push
       - name: lua
         run: sudo apt-get update -qq && sudo apt-get install -y -qq lua5.1
       - name: apply
         run: |
-          git pull --rebase
-          if [ -f tools/patch_010.py ]; then
-            python3 tools/patch_010.py
-            luac5.1 -p addon/DeathrollBaron/DeathrollBaron.lua && echo "PARSE OK"
-            git config user.name bot
-            git config user.email bot@users.noreply.github.com
-            git commit -am "0.0.10: tension curve, reel, one ceremony"
-            git push
-            git --no-pager diff --stat HEAD~1
-          else
-            echo "no patch script yet"
-          fi
+          python3 tools/patch_010.py
+          luac5.1 -p addon/DeathrollBaron/DeathrollBaron.lua && echo "PARSE OK"
+          git config user.name bot
+          git config user.email bot@users.noreply.github.com
+          git commit -am "0.0.10: tension curve, reel, one ceremony"
+          git push
+          git --no-pager diff --stat HEAD~1
