@@ -23,8 +23,8 @@ Two things a first-time player never had: a way in, and a door.
   picking a target with `<` `>`, that the stake leaves your purse when the hand starts, that
   shift-click steps a single roll, and that a bust pays Bone Crowns. It appears once, behind
   `DB.seenWelcome`; the `?` button in the title bar and `/drb help` reopen it on demand.
-- `DB.minimapAngle` and `DB.seenWelcome` join the schema (now 4), with the angle clamped on load
-  so a corrupt save cannot place the button off in the weeds.
+- `DB.minimapAngle` and `DB.seenWelcome` join the schema (now 4). A non-numeric angle falls back
+  to 220 on load rather than being trusted.
 
 ### Fixed
 
