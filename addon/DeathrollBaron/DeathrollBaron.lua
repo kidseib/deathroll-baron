@@ -21,6 +21,12 @@ local RUNNER_EVERY = 6
 local FLASH_TIME = 0.9
 local POP_TIME = 0.18
 
+-- The opening edge: rung 1 is meant to be winnable, and the edge bleeds away.
+-- Rolling LOW is the strong play in a deathroll, so a player "luck" of 0.55
+-- means 55% of the time you take the lower of two rolls.
+local EDGE_BASE = 0.55
+local EDGE_STEP = 0.025
+
 ---------------------------------------------------------------------
 -- formatting
 ---------------------------------------------------------------------
@@ -163,14 +169,16 @@ for _, a in ipairs(AFFIXES) do AFFIX_BY_ID[a.id] = a end
 
 ---------------------------------------------------------------------
 -- power-ups
+-- Rolling low forces the other side into a tiny range, so "luck" for you is
+-- keeping the lower roll and "luck" for them is keeping the higher one.
 ---------------------------------------------------------------------
 local POWERS = {
     { id = "dice",   name = "Weighted Dice",  base = 200,  max = 10,
-      desc = "+8% Luck per rank",
+      desc = "+8% chance to keep your lower roll, per rank",
       apply = function(c, r) if r > 0 then c.playerLuck = c.playerLuck + 0.08 * r end end },
     { id = "sand",   name = "Pocket Sand",    base = 250,  max = 8,
-      desc = "+8% enemy Hex per rank",
-      apply = function(c, r) if r > 0 then c.enemyLuck = c.enemyLuck + 0.08 * r end end },
+      desc = "Their luck -8% per rank: fewer low rolls for them",
+      apply = function(c, r) if r > 0 then c.enemyLuck = c.enemyLuck - 0.08 * r end end },
     { id = "marks",  name = "Marked Cards",   base = 300,  max = 10,
       desc = "+12% payout per rank",
       apply = function(c, r) if r > 0 then c.mult = c.mult + 0.12 * r end end },
@@ -289,6 +297,8 @@ local function BuildConfig(rung)
         affixes = {},
     }
 
+    -- the house is kind at rung 1 and the kindness runs out by the low 20s
+    c.playerLuck = max(0, EDGE_BASE - EDGE_STEP * (rung - 1))
     c.playerLuck = c.playerLuck + 0.02 * (DB.prestige.bloodline or 0)
 
     for _, p in ipairs(POWERS) do
@@ -309,8 +319,10 @@ local function BuildConfig(rung)
         c.mult = c.mult * 2
         c.lossMult = c.lossMult * 2
     end
-    c.playerLuck = min(0.95, max(0, c.playerLuck))
-    c.enemyLuck = min(0.95, max(0, c.enemyLuck))
+
+    -- negative luck is meaningful: it means the *bad* of two rolls
+    c.playerLuck = min(0.95, max(-0.95, c.playerLuck))
+    c.enemyLuck = min(0.95, max(-0.95, c.enemyLuck))
     c.purse = max(c.minWager, floor(c.purse))
     return c
 end
@@ -375,12 +387,17 @@ local function LogLine(s, kind, text)
     while #s.log > 6 do table.remove(s.log, 1) end
 end
 
-local function DrawRoll(mx, bias, high)
+-- wantLow: the roller wants a small number. bias > 0 helps that wish,
+-- bias < 0 works against it. So the player passes true and the NPC false.
+local function DrawRoll(mx, bias, wantLow)
     if mx < 1 then mx = 1 end
     local a = random(1, mx)
-    if bias > 0 and random() < bias then
+    if not bias or bias == 0 then return a end
+    local p, low = bias, wantLow
+    if p < 0 then p = -p; low = not low end
+    if random() < p then
         local b = random(1, mx)
-        if high then a = max(a, b) else a = min(a, b) end
+        if low then a = min(a, b) else a = max(a, b) end
     end
     return a
 end
@@ -440,6 +457,7 @@ local function StepMatch()
     local bias = isPlayer and c.playerLuck or c.enemyLuck
     if c.desperate and not isPlayer and s.max <= 20 then bias = bias + 0.30 end
 
+    -- you want the low roll, they want the high one. That is the whole game.
     local roll = DrawRoll(s.max, bias, isPlayer)
 
     if roll == 1 and isPlayer and s.insurance > 0 and not c.insuranceBlocked then
@@ -511,6 +529,7 @@ local function SimulateMatch(rung, wager)
         guard = guard + 1
         local isPlayer = (turn == "player")
         local bias = isPlayer and c.playerLuck or c.enemyLuck
+        if c.desperate and not isPlayer and mx <= 20 then bias = bias + 0.30 end
         local roll = DrawRoll(mx, bias, isPlayer)
         mx = roll
         if roll == 1 then
@@ -525,6 +544,55 @@ local function SimulateMatch(rung, wager)
     return "win", 0
 end
 
+---------------------------------------------------------------------
+-- exact win odds
+-- A[m]: you to move at range m.  B[m]: them to move at range m.
+-- Both are solved bottom-up once per (ceiling, luck) pair and cached.
+---------------------------------------------------------------------
+local oddsCache = {}
+
+local function OddsTables(m, pLuck, eLuck)
+    m = max(1, floor(m))
+    local key = m .. ":" .. floor(pLuck * 1000) .. ":" .. floor(eLuck * 1000)
+    local hit = oddsCache[key]
+    if hit then return hit.A, hit.B end
+
+    local A, B = { [1] = 0 }, { [1] = 1 }
+    local qp, qe = min(1, math.abs(pLuck)), min(1, math.abs(eLuck))
+    local pWantLow = pLuck >= 0
+    local eWantLow = eLuck < 0
+
+    for r = 2, m do
+        local inv = 1 / r
+        local inv2 = inv * inv
+        local a, b = 0, 0
+        for x = 1, r do
+            local pmin = (2 * (r - x) + 1) * inv2
+            local pmax = (2 * x - 1) * inv2
+            local pp = (1 - qp) * inv + qp * (pWantLow and pmin or pmax)
+            local pe = (1 - qe) * inv + qe * (eWantLow and pmin or pmax)
+            if x == 1 then
+                b = b + pe            -- they rolled 1: you win
+            else
+                a = a + pp * B[x]     -- your roll x, then them to move
+                b = b + pe * A[x]     -- their roll x, then you to move
+            end
+        end
+        A[r], B[r] = a, b
+    end
+
+    oddsCache[key] = { A = A, B = B }
+    return A, B
+end
+
+-- the chance you take the hand from here
+local function WinChance(cfg, live)
+    local m = live and state.max or cfg.ceiling
+    local youMove = live and (state.turn == "player") or (not live and not cfg.theyOpen)
+    local A, B = OddsTables(m, cfg.playerLuck, cfg.enemyLuck)
+    return youMove and A[m] or B[m]
+end
+
 -- exactly one bust per run: there is no path that awards crowns twice for the
 -- same peak, and no path that awards them while the run is already over.
 GameOver = function()
@@ -533,7 +601,9 @@ GameOver = function()
     state = nil
     DB.stake = 0
     DB.streak = 0
-    local earned = floor(math.sqrt(max(0, DB.peak) / 1000))
+    -- sqrt over a much smaller divisor, and never less than one: a bad run
+    -- still has to buy you something or the loop never starts.
+    local earned = max(1, floor(math.sqrt(max(0, DB.peak) / 250)))
     DB.crowns = DB.crowns + earned
     DB.lastCrowns = earned
     DB.runs = DB.runs + 1
@@ -680,15 +750,16 @@ local function Panel(parent, w, h, borderColor)
     bg:SetPoint("TOPLEFT", 2, -2)
     bg:SetPoint("BOTTOMRIGHT", -2, 2)
     bg:SetColorTexture(0.07, 0.06, 0.05, 0.97)
+    f.edge = edge
     return f
 end
 
 -- the tour copy: five lines, each sized to sit in one slot at 11pt
 local TOUR = {
     "A deathroll opens at 1-100. You trade rolls inside a shrinking range, and whoever rolls a 1 pays the pot.",
-    "Pick a target with the < > arrows. The tags are their edge, or their flaw. Rungs 1-5 have none.",
+    "You want the LOW roll: a small number leaves them almost nothing to roll in. High rolls are how you lose.",
     "Set the stake, then press ROLL. The stake leaves your purse the moment the hand starts.",
-    "Shift-click ROLL to step one roll at a time instead of letting the ticker run.",
+    "Shift-click ROLL to step one roll at a time. The ODD% line under the board is your real chance.",
     "Between hands, buy power-ups. Go broke and the table takes you: Bone Crowns buy permanent upgrades.",
 }
 
@@ -710,7 +781,6 @@ end
 Flash = function(r, g, b)
     if not W.youFlash then return end
     pulsing = false
-    popT = popT
     flashT = FLASH_TIME
     BoardColor(r, g, b)
     BoardAlpha(0.40)
@@ -778,7 +848,7 @@ local function Build()
     -- the board: two panels, your roll and theirs, never one shared number
     W.youPanel = Panel(frame, 184, 64, GOLD)
     W.youPanel:SetPoint("TOPLEFT", 8, -184)
-    W.youEdge = W.youPanel:GetRegions()
+    W.youEdge = W.youPanel.edge
 
     W.youFlash = W.youPanel:CreateTexture(nil, "BACKGROUND", nil, 1)
     W.youFlash:SetAllPoints()
@@ -795,7 +865,7 @@ local function Build()
 
     W.themPanel = Panel(frame, 184, 64, RED)
     W.themPanel:SetPoint("TOPRIGHT", -8, -184)
-    W.themEdge = W.themPanel:GetRegions()
+    W.themEdge = W.themPanel.edge
 
     W.themFlash = W.themPanel:CreateTexture(nil, "BACKGROUND", nil, 1)
     W.themFlash:SetAllPoints()
@@ -1151,8 +1221,20 @@ function ns.Refresh()
         W.range:SetTextColor(DIM[1], DIM[2], DIM[3])
     end
 
-    W.luck:SetText(("your luck %s   .   their luck %s   .   payout x%.2f"):format(
-        Pct(cfg.playerLuck), Pct(cfg.enemyLuck), cfg.mult))
+    -- the odds line: the actual chance you take this hand, given both sides'
+    -- luck and who is holding the dice right now
+    local oddsCfg = live and state.cfg or cfg
+    local chance = WinChance(oddsCfg, live)
+    local odds = floor(chance * 100 + 0.5)
+    W.luck:SetText(("ODDS %d%%   .   luck you %s / them %s   .   payout x%.2f"):format(
+        odds, Pct(oddsCfg.playerLuck), Pct(oddsCfg.enemyLuck), oddsCfg.mult))
+    if odds >= 55 then
+        W.luck:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
+    elseif odds <= 45 then
+        W.luck:SetTextColor(RED[1], RED[2], RED[3])
+    else
+        W.luck:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+    end
 
     local entries = {}
     if state then
@@ -1376,6 +1458,15 @@ SlashCmdList["DEATHROLLBARON"] = function(msg)
     msg = (msg or ""):lower()
     if msg == "help" then
         ShowWelcome()
+        return
+    end
+    if msg == "odds" then
+        local rung = ns.selectedRung or 1
+        local cfg = BuildConfig(rung)
+        local A, B = OddsTables(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck)
+        local opens = not cfg.theyOpen
+        print(("|cffc9a227odds|r rung %d (%s): ceiling %d, %.1f%% as the opener, %.1f%% as the second player"):format(
+            rung, cfg.name, cfg.ceiling, A[cfg.ceiling] * 100, B[cfg.ceiling] * 100))
         return
     end
     if msg == "reset" then
