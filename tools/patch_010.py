@@ -22,6 +22,14 @@ def swap(text, old, new, label):
     print('anchor ok: ' + label)
     return text.replace(old, new, 1)
 
+def resub(text, pattern, build, label):
+    rx = re.compile(pattern, re.M)
+    n = len(rx.findall(text))
+    if n != 1:
+        sys.exit(label + ': anchor matched ' + str(n) + ' times')
+    print('anchor ok: ' + label)
+    return rx.sub(build, text, count=1)
+
 A1 = '''    if el > 0.1 then el = 0.1 end
 
     local s = state
@@ -41,35 +49,6 @@ A2 = '''        J.scaleYou, J.scaleThem = 1, 1
 B2 = '''        J.scaleYou, J.scaleThem = 1, 1
         J.prevMax = nil
     end
-'''
-
-A3 = '''                if s.lastPlayer then J.Roll("you") end
-'''
-B3 = '''                if s.lastPlayer then J.ReelStart("you", s.lastPlayer) end
-'''
-
-A4 = '''                if s.lastEnemy then J.Roll("them") end
-'''
-B4 = '''                if s.lastEnemy then J.ReelStart("them", s.lastEnemy) end
-'''
-
-A5 = '''        J.seenResult = s.result or "win"
-        J.Result(s)
-'''
-B5 = '''        J.seenResult = s.result or "win"
-        J.Ceremony(s)
-'''
-
-A6 = '''ns.Refresh = function(...)
-    if jbase then jbase(...) end
-    J.Odds()
-end
-'''
-B6 = '''ns.Refresh = function(...)
-    if jbase then jbase(...) end
-    J.ReelPaint()
-    J.Odds()
-end
 '''
 
 BLOCK = '''---------------------------------------------------------------------
@@ -242,10 +221,23 @@ lines0 = lua.count('\n')
 
 lua = swap(lua, A1, B1, 'step prologue')
 lua = swap(lua, A2, B2, 'per-hand reset')
-lua = swap(lua, A3, B3, 'you reel')
-lua = swap(lua, A4, B4, 'them reel')
-lua = swap(lua, A5, B5, 'finish hook')
-lua = swap(lua, A6, B6, 'refresh wrapper')
+
+lua = resub(lua, r'^([ \t]*)if s\.lastPlayer then J\.Roll\("you"\) end[ \t]*$',
+            lambda m: m.group(1) + 'if s.lastPlayer then J.ReelStart("you", s.lastPlayer) end',
+            'you reel')
+
+lua = resub(lua, r'^([ \t]*)if s\.lastEnemy then J\.Roll\("them"\) end[ \t]*$',
+            lambda m: m.group(1) + 'if s.lastEnemy then J.ReelStart("them", s.lastEnemy) end',
+            'them reel')
+
+lua = resub(lua, r'^([ \t]*)J\.seenResult = s\.result or "win"\n\1J\.Result\(s\)',
+            lambda m: m.group(1) + 'J.seenResult = s.result or "win"\n' + m.group(1) + 'J.Ceremony(s)',
+            'finish hook')
+
+lua = resub(lua, r'^ns\.Refresh = function\(\.\.\.\)\n([ \t]*)if jbase then jbase\(\.\.\.\) end\n\1J\.Odds\(\)',
+            lambda m: 'ns.Refresh = function(...)\n' + m.group(1) + 'if jbase then jbase(...) end\n' + m.group(1) + 'J.ReelPaint()\n' + m.group(1) + 'J.Odds()',
+            'refresh wrapper')
+
 lua = swap(lua, 'local jbase = ns.Refresh\n', BLOCK + 'local jbase = ns.Refresh\n', 'module block')
 
 write(LUA, lua)
