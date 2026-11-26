@@ -6,8 +6,41 @@ versioning is [SemVer](https://semver.org/).
 ## [Unreleased]
 
 - Live-client validation pass: still nothing has been played in game.
+- Resume a match across a reload, so the stake cannot be dodged and the hand is not lost.
 - Wager slider to replace the stepper (needs a thumb texture).
 - Challenge your current target; addon-vs-addon multiplayer.
+
+## [0.0.4] — 2026-11-26
+
+The wager used to move only in `FinishMatch`, which meant a `/reload` during a bad opening
+roll abandoned the hand for free. Every loss was optional. This release takes the stake first.
+
+### Changed
+
+- **The stake is taken up front.** `StartMatch` deducts the wager and records it in `DB.stake`;
+  `FinishMatch` settles from that escrow — a win pays the pot on top of it, a loss returns the
+  portion of the stake you keep. `DB.stake` is cleared the moment the hand settles.
+- **Net instead of gross after a hand.** The big number shows the real change to the wallet
+  (`payout - stake`), signed, and coloured by the result rather than by the sign. The win log line
+  names the net too.
+
+### Fixed
+
+- **Reloading out of a match no longer dodges the loss.** A non-zero `DB.stake` at login means the
+  client was reloaded or killed mid-hand: the stake is forfeit, the hand counts as a loss,
+  `DB.forfeits` tallies it, and the chat log says where the money went.
+- **The wager readout no longer collapses mid-match.** `ns.Refresh` re-clamped the wager to the
+  bankroll on every call; once the stake left the wallet that would have shown a smaller bet than
+  the one actually on the table. A live hand now displays `state.wager`, and the loan button hides
+  while the stake is committed.
+- `GameOver`, `StartNewRun` and `/drb reset` zero `DB.stake`, so no path can orphan an escrowed
+  wager and then charge for it later.
+
+### Known gap
+
+A reload cannot save the stake, but in a `Debt Collector` match (`lossMult` 1.5) it still avoids the
+extra half of the loss. Resuming the hand across a reload is the only way to remove that, and it
+needs persisted match state — it is first on the Unreleased list.
 
 ## [0.0.3] — 2026-11-26
 
