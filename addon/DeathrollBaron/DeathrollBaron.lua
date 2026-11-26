@@ -1750,7 +1750,6 @@ end
 -- padded: "116g 3s", "116g", "50s", "25c". Nothing nonzero is rounded.
 local function BarMoney(c)
     c = floor((c or 0) + 0.5)
-    if c < 0 then return "-" .. BarMoney(-c) end
     local g = floor(c / 10000)
     local s = floor((c % 10000) / 100)
     local cu = c % 100
@@ -1877,6 +1876,8 @@ local HOLD = 0.55
 -- About six frames at 60fps: the time a settled number needs on screen
 -- before the next roll repaints the panel.
 local REEL_READ = 0.10
+-- Three frames: shorter than this, a scramble is never seen.
+local MIN_SPIN = 0.05
 
 -- One reel slot is enough: only one side can be rolling at a time, so a
 -- new roll always ends the old one. Settling first is what keeps the
@@ -1908,7 +1909,7 @@ function J.ReelStart(side, value)
     -- If the gap cannot fit a scramble and still leave REEL_READ for the
     -- landing, skip the scramble: the true number ns.Refresh already
     -- painted stays up for the whole gap, and only the punch remains.
-    if gap and gap - REEL_READ < 0.05 then
+    if gap and gap - REEL_READ < MIN_SPIN then
         if side == 'you' then J.scaleYou = 1.30 else J.scaleThem = 1.30 end
         J.span = s.max
         J.Roll(side)
@@ -1921,9 +1922,10 @@ function J.ReelStart(side, value)
         life = 0.16 + 0.18 * (1 - s.max / s.cfg.ceiling),
     }
     -- Fast Hands can make a tick shorter than the reel. Reserve REEL_READ
-    -- of the gap for the landing, with a floor so the spin is never zero.
+    -- of the gap for the landing; the skip above already guarantees that a
+    -- scrambling reel gets at least MIN_SPIN.
     if gap then
-        J.reel.life = max(0.05, min(J.reel.life, gap - REEL_READ))
+        J.reel.life = min(J.reel.life, gap - REEL_READ)
     end
     J.span = s.max
     J.Roll(side)
@@ -2065,7 +2067,7 @@ function ns.AutoTick(el)
         return
     end
     ns.autoT = ns.autoT + el
-    if ns.autoT < ns.AutoPause(s) then return end
+    if ns.autoT < ns.AutoPause(s) or J.hold then return end
     ns.autoT = 0
     if not StartMatch(ns.selectedRung, ns.wager, false) then ns.auto = false end
     ns.Refresh()
