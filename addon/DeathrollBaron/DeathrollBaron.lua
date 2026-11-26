@@ -14,8 +14,12 @@ local RED   = { 0.80, 0.34, 0.30 }
 
 local ICON = "Interface\\Icons\\INV_Misc_Dice_02"
 
-local SCHEMA = 4
+local SCHEMA = 5
 local RUNNER_EVERY = 6
+
+-- board animation timings
+local FLASH_TIME = 0.9
+local POP_TIME = 0.18
 
 ---------------------------------------------------------------------
 -- formatting
@@ -202,7 +206,7 @@ local DEFAULTS = {
     gold = 500, peak = 500, runs = 0, crowns = 0, bestRung = 1,
     wins = 0, losses = 0, debt = 0, loanUsed = false, lastSeen = 0,
     ended = false, lastCrowns = 0, stake = 0, forfeits = 0,
-    seenWelcome = false, minimapAngle = 220,
+    seenWelcome = false, minimapAngle = 220, streak = 0,
 }
 
 local function InitDB()
@@ -221,6 +225,7 @@ local function InitDB()
     DB.peak = max(DB.gold, floor(tonumber(DB.peak) or 0))
     DB.crowns = max(0, floor(tonumber(DB.crowns) or 0))
     DB.stake = max(0, floor(tonumber(DB.stake) or 0))
+    DB.streak = max(0, floor(tonumber(DB.streak) or 0))
     DB.minimapAngle = tonumber(DB.minimapAngle) or 220
     DB.schema = SCHEMA
 end
@@ -363,6 +368,7 @@ local state
 local stateToken = 0
 local runnerAccum, runnerClock = 0, 0
 local GameOver, StartNewRun, BustCheck
+local Flash, Pop
 
 local function LogLine(s, kind, text)
     s.log[#s.log + 1] = { kind = kind, text = text }
@@ -395,6 +401,7 @@ local function FinishMatch(result)
         local payout = max(0, min(gross - floor(gross * c.winTax), c.purse))
         DB.gold = DB.gold + payout
         DB.wins = DB.wins + 1
+        DB.streak = (DB.streak or 0) + 1
         s.payout = payout
         s.net = payout - s.wager
         LogLine(s, "win", "You take " .. Money(payout) .. " (net " .. Signed(s.net) .. ").")
@@ -408,13 +415,16 @@ local function FinishMatch(result)
             DB.bestRung = c.rung + 1
             LogLine(s, "bank", "Rung unlocked: " .. NPCS[DB.bestRung][1] .. ".")
         end
+        Flash(GREEN[1], GREEN[2], GREEN[3])
     else
         local loss = floor(s.wager * c.lossMult * c.lossFrac)
         DB.gold = DB.gold + (s.wager - loss)
         DB.losses = DB.losses + 1
+        DB.streak = 0
         s.loss = loss
         s.net = -loss
         LogLine(s, "lose", "You pay " .. Money(loss) .. ".")
+        Flash(BLOOD[1], BLOOD[2], BLOOD[3])
     end
 
     if DB.gold < 0 then DB.gold = 0 end
@@ -438,7 +448,11 @@ local function StepMatch()
         return
     end
 
-    LogLine(s, isPlayer and "you" or "them", tostring(roll))
+    -- the board keeps both sides on screen, so each roll says whose it was
+    if isPlayer then s.lastPlayer = roll else s.lastEnemy = roll end
+    LogLine(s, isPlayer and "you" or "them", (isPlayer and "you " or "them ") .. roll)
+    Pop(isPlayer)
+
     s.max = roll
     if roll == 1 then
         FinishMatch(isPlayer and "lose" or "win")
@@ -465,6 +479,7 @@ local function StartMatch(rung, wager, manual)
         turn = c.theyOpen and "enemy" or "player",
         insurance = c.insurance, log = {}, finished = false,
         manual = manual and true or false,
+        lastPlayer = nil, lastEnemy = nil,
     }
     stateToken = stateToken + 1
     local token = stateToken
@@ -517,6 +532,7 @@ GameOver = function()
     DB.ended = true
     state = nil
     DB.stake = 0
+    DB.streak = 0
     local earned = floor(math.sqrt(max(0, DB.peak) / 1000))
     DB.crowns = DB.crowns + earned
     DB.lastCrowns = earned
@@ -553,6 +569,7 @@ StartNewRun = function()
     DB.debt, DB.loanUsed = 0, false
     DB.ended, DB.lastCrowns = false, 0
     DB.stake = 0
+    DB.streak = 0
     state = nil
     stateToken = stateToken + 1
     -- a new run starts the Runner's clock from zero
@@ -675,6 +692,39 @@ local TOUR = {
     "Between hands, buy power-ups. Go broke and the table takes you: Bone Crowns buy permanent upgrades.",
 }
 
+-- animation state for the roll board
+local flashT, pulsing = 0, false
+local popT, popTarget = 0, nil
+
+local function BoardAlpha(a)
+    if W.youFlash then W.youFlash:SetAlpha(a) end
+    if W.themFlash then W.themFlash:SetAlpha(a) end
+end
+
+local function BoardColor(r, g, b)
+    if W.youFlash then W.youFlash:SetColorTexture(r, g, b, 1) end
+    if W.themFlash then W.themFlash:SetColorTexture(r, g, b, 1) end
+end
+
+-- a winning hand paints the board green, a losing one red, then it fades
+Flash = function(r, g, b)
+    if not W.youFlash then return end
+    pulsing = false
+    popT = popT
+    flashT = FLASH_TIME
+    BoardColor(r, g, b)
+    BoardAlpha(0.40)
+end
+
+-- each roll punches its own number so you can see which side just moved
+Pop = function(forPlayer)
+    local fs = forPlayer and W.youNum or W.themNum
+    if not fs then return end
+    popTarget = fs
+    popT = POP_TIME
+    fs:SetAlpha(0.15)
+end
+
 local function Build()
     frame = CreateFrame("Frame", "DeathrollBaronFrame", UIParent)
     frame:SetSize(400, 630)
@@ -717,17 +767,48 @@ local function Build()
     W.npcInfo = FS(frame, DIM, 11)
     W.npcInfo:SetPoint("TOPLEFT", 16, -112)
 
+    -- 13pt apart, not 15: the four-affix rungs need to clear the roll board
     for i = 1, 4 do
         local fs = FS(frame, DIM, 11)
-        fs:SetPoint("TOPLEFT", 16, -130 - (i - 1) * 15)
+        fs:SetPoint("TOPLEFT", 16, -128 - (i - 1) * 13)
         fs:SetText("")
         W.affix[i] = fs
     end
 
-    -- 40pt not 46: the box for 46 ran to about -261 and collided with W.range
-    W.big = FS(frame, BONE, 40)
-    W.big:SetPoint("TOP", 0, -200)
-    W.big:SetText("")
+    -- the board: two panels, your roll and theirs, never one shared number
+    W.youPanel = Panel(frame, 184, 64, GOLD)
+    W.youPanel:SetPoint("TOPLEFT", 8, -184)
+    W.youEdge = W.youPanel:GetRegions()
+
+    W.youFlash = W.youPanel:CreateTexture(nil, "BACKGROUND", nil, 1)
+    W.youFlash:SetAllPoints()
+    W.youFlash:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
+    W.youFlash:SetAlpha(0)
+
+    W.youLabel = FS(W.youPanel, DIM, 10)
+    W.youLabel:SetPoint("TOP", 0, -4)
+    W.youLabel:SetText("YOUR ROLL")
+
+    W.youNum = FS(W.youPanel, GOLD, 32)
+    W.youNum:SetPoint("TOP", 0, -17)
+    W.youNum:SetText("--")
+
+    W.themPanel = Panel(frame, 184, 64, RED)
+    W.themPanel:SetPoint("TOPRIGHT", -8, -184)
+    W.themEdge = W.themPanel:GetRegions()
+
+    W.themFlash = W.themPanel:CreateTexture(nil, "BACKGROUND", nil, 1)
+    W.themFlash:SetAllPoints()
+    W.themFlash:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
+    W.themFlash:SetAlpha(0)
+
+    W.themLabel = FS(W.themPanel, DIM, 10)
+    W.themLabel:SetPoint("TOP", 0, -4)
+    W.themLabel:SetText("THEIR ROLL")
+
+    W.themNum = FS(W.themPanel, RED, 32)
+    W.themNum:SetPoint("TOP", 0, -17)
+    W.themNum:SetText("--")
 
     W.range = FS(frame, DIM, 11)
     W.range:SetPoint("TOP", 0, -252)
@@ -808,6 +889,33 @@ local function Build()
         b:SetScript("OnLeave", function() GameTooltip:Hide() end)
         W.shop[i] = b
     end
+
+    -- one animation driver: board pulse, result flash, per-roll pop
+    frame:SetScript("OnUpdate", function(_, elapsed)
+        local liveNow = state and not state.finished
+
+        if flashT > 0 then
+            flashT = max(0, flashT - elapsed)
+            BoardAlpha((flashT / FLASH_TIME) * 0.40)
+        elseif liveNow then
+            if not pulsing then
+                pulsing = true
+                BoardColor(GOLD[1], GOLD[2], GOLD[3])
+            end
+            BoardAlpha(0.05 + 0.05 * (0.5 + 0.5 * math.sin(GetTime() * 2.6)))
+        elseif pulsing then
+            pulsing = false
+            BoardAlpha(0)
+        end
+
+        if popT > 0 then
+            popT = max(0, popT - elapsed)
+            if popTarget then
+                popTarget:SetAlpha(1 - (popT / POP_TIME) * 0.85)
+                if popT == 0 then popTarget = nil end
+            end
+        end
+    end)
 
     frame:Hide()
 
@@ -947,6 +1055,15 @@ CreateMinimap = function()
     PlaceMinimapButton()
 end
 
+-- the croupier: one line of tension, chosen by how tight the range has become
+local function Tension(mx)
+    if mx <= 4 then return "  .  no room left" end
+    if mx <= 12 then return "  .  the table goes quiet" end
+    if mx <= 25 then return "  .  every number matters" end
+    if mx >= 60 then return "  .  plenty of room" end
+    return ""
+end
+
 function ns.Refresh()
     if not frame or not DB then return end
 
@@ -967,8 +1084,9 @@ function ns.Refresh()
 
     W.gold:SetText(Money(DB.gold))
     local crowns = DB.crowns > 0 and ("   " .. DB.crowns .. " crowns") or ""
-    W.sub:SetText(("peak %s%s    run %d    %dW/%dL"):format(
-        Money(DB.peak), crowns, DB.runs + 1, DB.wins, DB.losses))
+    local streak = (DB.streak or 0) >= 3 and ("   " .. DB.streak .. " in a row") or ""
+    W.sub:SetText(("peak %s%s%s    run %d    %dW/%dL"):format(
+        Money(DB.peak), crowns, streak, DB.runs + 1, DB.wins, DB.losses))
 
     W.npc:SetText(("%d/%d  %s"):format(ns.selectedRung, #NPCS, cfg.name))
     W.npcInfo:SetText(("%s   .   level %s   .   purse %s"):format(
@@ -992,29 +1110,45 @@ function ns.Refresh()
         W.affix[1]:SetTextColor(DIM[1], DIM[2], DIM[3])
     end
 
+    -- the board: who rolled what, and whose turn it is right now
+    local yours = live and state.turn == "player"
+    local theirs = live and state.turn == "enemy"
+
+    if state and state.lastPlayer then
+        W.youNum:SetText(tostring(state.lastPlayer))
+    else
+        W.youNum:SetText(live and "?" or "--")
+    end
+    if state and state.lastEnemy then
+        W.themNum:SetText(tostring(state.lastEnemy))
+    else
+        W.themNum:SetText(live and "?" or "--")
+    end
+
+    W.youLabel:SetText("YOUR ROLL" .. (yours and "   <<" or ""))
+    W.themLabel:SetText("THEIR ROLL" .. (theirs and "   <<" or ""))
+    W.youEdge:SetAlpha(yours and 0.95 or 0.30)
+    W.themEdge:SetAlpha(theirs and 0.95 or 0.30)
+
     if live then
-        W.big:SetText(tostring(state.max))
-        W.big:SetTextColor(BONE[1], BONE[2], BONE[3])
-        W.range:SetText(("rolling 1 - %d    .    %s on the table"):format(state.max, Money(state.wager)))
-    elseif state and state.finished then
-        -- net, not the gross pot: the stake was taken when the match opened
-        local net = state.net or 0
-        if net >= 0 then
-            W.big:SetText("+" .. Money(net))
+        local turn = yours and "your turn" or "their turn"
+        W.range:SetText(("%s  .  roll 1 - %d%s"):format(turn, state.max, Tension(state.max)))
+        if yours then
+            W.range:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
         else
-            W.big:SetText("-" .. Money(-net))
+            W.range:SetTextColor(RED[1], RED[2], RED[3])
         end
+    elseif state and state.finished then
         if state.result == "win" then
-            W.big:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
-            W.range:SetText("you take the pot")
+            W.range:SetText("you take the pot  .  " .. Signed(state.net or 0))
+            W.range:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
         else
-            W.big:SetTextColor(0.85, 0.30, 0.26)
-            W.range:SetText("you pay up")
+            W.range:SetText("you pay up  .  " .. Signed(state.net or 0))
+            W.range:SetTextColor(0.85, 0.30, 0.26)
         end
     else
-        W.big:SetText(tostring(cfg.ceiling))
-        W.big:SetTextColor(BONE[1] * 0.6, BONE[2] * 0.6, BONE[3] * 0.6)
-        W.range:SetText(("opens at 1 - %d"):format(cfg.ceiling))
+        W.range:SetText(("opens at 1 - %d  .  %s to sit down"):format(cfg.ceiling, Money(cfg.minWager)))
+        W.range:SetTextColor(DIM[1], DIM[2], DIM[3])
     end
 
     W.luck:SetText(("your luck %s   .   their luck %s   .   payout x%.2f"):format(
@@ -1030,7 +1164,11 @@ function ns.Refresh()
         local e = entries[i]
         if e then
             W.log[i]:SetText(e.text)
-            if e.kind == "win" then
+            if e.kind == "you" then
+                W.log[i]:SetTextColor(GOLD[1] + 0.15, GOLD[2] + 0.15, GOLD[3] + 0.25)
+            elseif e.kind == "them" then
+                W.log[i]:SetTextColor(RED[1], RED[2], RED[3])
+            elseif e.kind == "win" then
                 W.log[i]:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
             elseif e.kind == "lose" then
                 W.log[i]:SetTextColor(0.85, 0.30, 0.26)
@@ -1248,7 +1386,7 @@ SlashCmdList["DEATHROLLBARON"] = function(msg)
         DB.debt, DB.loanUsed = 0, false
         DB.ended, DB.lastCrowns = false, 0
         DB.wins, DB.losses = 0, 0
-        DB.stake = 0
+        DB.stake, DB.streak = 0, 0
         state = nil
         stateToken = stateToken + 1
         runnerAccum, runnerClock = 0, 0
