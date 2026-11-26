@@ -2,7 +2,7 @@
 ## Title: Deathroll Baron
 ## Notes: A deathroll incremental. Gamble your bankroll against 30 real Azeroth NPCs.
 ## Author: ErrorSeiB
-## Version: 0.0.7
+## Version: 0.0.8
 ## SavedVariables: DeathrollBaronDB
 ## IconTexture: Interface\Icons\INV_Misc_Dice_02
 ## AddonCompartmentFunc: DeathrollBaron_CompartmentClick

@@ -10,6 +10,35 @@ versioning is [SemVer](https://semver.org/).
 - Wager slider to replace the stepper (needs a thumb texture).
 - Challenge your current target; addon-vs-addon multiplayer.
 
+## [0.0.8] - 2026-11-26
+The feel pass: the table stops being a spreadsheet and starts being a slot machine.
+Nothing about the odds changed - only how loud they are.
+
+### Added
+
+- **A real odds bar.** The line under the board is now a 384x18 bar with a live fill and
+  `57% YOU . pays 2g 40s . risk 50s` on it. Green above 56%, gold between, red under 44%.
+  It updates on every roll, live or between hands, and the fill breathes.
+- **Cha-ching.** Winning a hand throws a coin-and-spark burst out of your panel and across the
+  board, floats `CHA-CHING!` and the pot in gold, flashes the whole frame and punches the
+  gold counter. Every single roll punches that side's number and spits a few sparks, so the
+  board is never still.
+- **Sound**, where the client exposes `SOUNDKIT` (`LOOT_ROLL_WON` / `LOOT_ROLL_LOST`);
+  guarded, so an old client just stays quiet instead of erroring.
+
+### Changed
+
+- **Quick fire.** Roll ticker 0.85s -> 0.26s, opening delay 0.30s -> 0.08s, result flash
+  0.90s -> 0.42s, number pop 0.18s -> 0.12s. A ten-roll hand now takes about three seconds.
+- Fast Hands now scales off the new base speed, so a maxed Fast Hands hand is near-instant.
+- The tour line points at the odds bar instead of the old ODD% line.
+
+### Note
+
+Everything above is appended as one self-contained module at the end of the file; no existing
+function was rewritten, so the odds solver, the match engine and the save format are untouched.
+Schema stays 5. Still never played in game - syntax-checked by CI only.
+
 ## [0.0.7] — 2026-11-26
 
 Three wins in twenty, and no crowns to show for any of it. The luck system was pointing backwards.
