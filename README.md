@@ -1,7 +1,7 @@
 # Deathroll Baron
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.0.2-c9a227?style=flat-square" alt="Version 0.0.2">
+  <img src="https://img.shields.io/badge/version-0.0.3-c9a227?style=flat-square" alt="Version 0.0.3">
   <img src="https://img.shields.io/badge/interface-16001-3f7d4e?style=flat-square" alt="Interface 16001">
   <img src="https://img.shields.io/badge/Lua-5.1-2c2d72?style=flat-square&logo=lua&logoColor=white" alt="Lua 5.1">
   <img src="https://img.shields.io/badge/dependencies-none-6b4f2a?style=flat-square" alt="No runtime dependencies">
@@ -14,10 +14,9 @@
   Native Lua 5.1 · no libraries · no real gold touched.
 </p>
 
-> **Status — 0.0.2.** The Lua is syntax-checked by CI on every release and 0.0.2 fixes a round of
-> runtime faults found by review — double-awarded crowns, unspendable prestige, a Runner running six
-> times too fast, a low-bankroll dead end, a load-time crash from stale saves, and two layout
-> overlaps. It has still **never been played in game**. Checklist: [TODO.md](TODO.md).
+> **Status — 0.0.3.** Syntax-checked by CI on every release. 0.0.2 fixed a round of runtime faults;
+> 0.0.3 implements the Shift-stepping that earlier versions advertised but did not have. It has
+> still **never been played in game**. Checklist: [TODO.md](TODO.md).
 
 ---
 
@@ -28,12 +27,12 @@ matching `.sha256` file sits beside it:
 
 ```powershell
 # Windows PowerShell
-Get-FileHash .\DeathrollBaron-0.0.2.zip -Algorithm SHA256
+Get-FileHash .\DeathrollBaron-0.0.3.zip -Algorithm SHA256
 ```
 
 ```bash
 # macOS / Linux
-shasum -a 256 DeathrollBaron-0.0.2.zip
+shasum -a 256 DeathrollBaron-0.0.3.zip
 ```
 
 ---
@@ -77,8 +76,9 @@ The addon declares `## Interface: 16001`, the Forever client value (1.60.1). If 
    rolled when the run starts, so the same Hogger is a pushover tonight and a monster tomorrow.
 3. **Set a wager.** Bounded below by the rung's minimum and above by your bankroll; the payout is
    capped by the NPC's purse, which is the ratchet that forces you up the ladder.
-4. **Roll.** One click resolves the whole deathroll with a shrinking ticker. Hold **Shift** on ROLL
-   to step it one roll at a time instead.
+4. **Roll.** A plain click resolves the whole deathroll on a shrinking ticker.
+   **Shift-click** instead and you roll it yourself, one click per roll; you can also Shift-click
+   mid-run to take the ticker off auto. The line under the button always names the current mode.
 5. **Spend.** Power-ups improve your luck, tax their luck, raise the multiplier or blunt your losses.
 6. **Go broke.** Peak bankroll converts into Bone Crowns, which buy permanent advantages for the
    next run.
@@ -205,8 +205,8 @@ power-up cost) and Inherited Dice (keep one power-up between runs).
 ## Compatibility and safety
 
 - Written against **Forever** interface `16001` (client 1.60.1), Lua 5.1, no libraries.
-- Uses only frames, textures, font strings, SavedVariables and timers. It reads no combat data, no
-  unit health, no combat log.
+- Uses only frames, textures, font strings, SavedVariables and timers, plus `IsShiftKeyDown()` for the
+  manual mode. It reads no combat data, no unit health, no combat log.
 - The bankroll is fictional. `GetMoney()` is never called, no trade window is opened, and no real item
   or coin is touched.
 - Opponents are stored as names and zone strings. No unit tokens, no GUIDs, no NPC lookups.

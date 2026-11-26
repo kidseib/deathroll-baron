@@ -161,7 +161,7 @@ local POWERS = {
       apply = function(c, r) if r > 0 then c.enemyLuck = c.enemyLuck + 0.08 * r end end },
     { id = "marks",  name = "Marked Cards",   base = 300,  max = 10,
       desc = "+12% payout per rank",
-      apply = function(c, r) if r > 0 then c.mult = c.mult + 0.12 * r end end },
+      apply = function(c, r) if r > 0 then c.marksBought = r; c.mult = c.mult + 0.12 * r end end },
     { id = "hands",  name = "Fast Hands",     base = 150,  max = 2,
       desc = "Roll ticker twice as fast",
       apply = function(c, r) c.speed = 0.85 / (1 + 0.6 * r) end },
@@ -425,7 +425,8 @@ local function StepMatch()
     s.turn = isPlayer and "enemy" or "player"
 end
 
-local function StartMatch(rung, wager)
+-- manual: the ticker is not started; the player advances each roll by clicking
+local function StartMatch(rung, wager, manual)
     if DB.ended then return false end
     local c = BuildConfig(rung)
     wager = max(c.minWager, floor(wager or c.minWager))
@@ -435,17 +436,20 @@ local function StartMatch(rung, wager)
         cfg = c, wager = wager, max = c.ceiling,
         turn = c.theyOpen and "enemy" or "player",
         insurance = c.insurance, log = {}, finished = false,
+        manual = manual and true or false,
     }
     stateToken = stateToken + 1
     local token = stateToken
     LogLine(state, "bank", c.name .. " sits down. " .. Money(wager) .. " on the table.")
 
+    if state.manual then return true end
+
     local function tick()
         if token ~= stateToken then return end
         local s = state
-        if not s or s.finished then return end
+        if not s or s.finished or s.manual then return end
         StepMatch()
-        if not s.finished then
+        if not s.finished and not s.manual then
             C_Timer.After(s.cfg.speed, tick)
         end
         ns.Refresh()
@@ -538,6 +542,7 @@ end
 -- the runner: idle and offline income
 ---------------------------------------------------------------------
 local runnerAccum = 0
+local runnerSeconds = 0
 
 local function RunnerStep()
     if (DB.powers.runner or 0) < 1 then return end
@@ -733,6 +738,11 @@ local function Build()
     W.roll = Btn(frame, "ROLL", 368, 40, 16, function() DoRoll() end)
     W.roll:SetPoint("TOP", 0, -424)
 
+    -- the Shift hint lives under the button so the mode is never a secret
+    W.hint = FS(frame, DIM, 10)
+    W.hint:SetPoint("BOTTOM", W.roll, "TOP", 0, 2)
+    W.hint:SetText("shift-click to roll it yourself")
+
     for i, p in ipairs(POWERS) do
         local col = (i - 1) % 2
         local row = floor((i - 1) / 2)
@@ -871,10 +881,18 @@ function ns.Refresh()
     end
 
     W.wager:SetText(Money(ns.wager))
-    W.roll:SetText(live and "ROLLING" or ("ROLL   " .. Money(ns.wager)))
-    -- enabled whenever the window can act at all, so a player who can no longer
-    -- cover the minimum can still press it and be told the truth
-    W.roll:SetEnabled(not live)
+    -- enabled during a match too: a manual match is advanced by clicking it
+    W.roll:SetEnabled(true)
+    if live and state.manual then
+        W.roll:SetText("ROLL ONE   (click)")
+        W.hint:SetText("manual: one roll per click, shift or not")
+    elseif live then
+        W.roll:SetText("ROLLING")
+        W.hint:SetText("shift-click to take over")
+    else
+        W.roll:SetText("ROLL   " .. Money(ns.wager))
+        W.hint:SetText("click to auto-roll  .  shift-click to roll it yourself")
+    end
 
     W.loan:SetShown(DB.gold < cfg.minWager and not DB.loanUsed and not DB.ended)
     W.prev:SetEnabled(ns.selectedRung > 1)
@@ -929,12 +947,25 @@ AdjustWager = function(dir)
     ns.Refresh()
 end
 
+-- One button, three jobs:
+--   no match, no shift   -> start a match on the ticker
+--   no match, shift      -> start a match in manual mode, and roll once
+--   live match, any mode -> shift-click steps one roll (and takes over from the ticker)
 DoRoll = function()
     if DB.ended then
         if ns.ShowPrestige then ns.ShowPrestige(DB.lastCrowns) end
         return
     end
-    if state and not state.finished then return end
+
+    if state and not state.finished then
+        if state.manual or IsShiftKeyDown() then
+            state.manual = true
+            StepMatch()
+            ns.Refresh()
+        end
+        return
+    end
+
     local cfg = BuildConfig(ns.selectedRung)
     if DB.gold < cfg.minWager then
         if Borrow() then
@@ -944,7 +975,11 @@ DoRoll = function()
         end
         return
     end
-    StartMatch(ns.selectedRung, ns.wager)
+
+    local manual = IsShiftKeyDown() and true or false
+    if StartMatch(ns.selectedRung, ns.wager, manual) and manual then
+        StepMatch()
+    end
     ns.Refresh()
 end
 
@@ -989,10 +1024,13 @@ clock:SetScript("OnUpdate", function(_, elapsed)
     runnerAccum = runnerAccum + elapsed
     if runnerAccum < 1 then return end
     runnerAccum = 0
-    if DB.ended or (DB.powers.runner or 0) < 1 then return end
-    runnerClock = (runnerClock or 0) + 1
-    if runnerClock >= RUNNER_EVERY then
-        runnerClock = 0
+    if DB.ended or (DB.powers.runner or 0) < 1 then
+        runnerSeconds = 0
+        return
+    end
+    runnerSeconds = runnerSeconds + 1
+    if runnerSeconds >= RUNNER_EVERY then
+        runnerSeconds = 0
         RunnerStep()
         if frame and frame:IsShown() then ns.Refresh() end
     end
