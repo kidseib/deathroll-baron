@@ -5,556 +5,295 @@
 local ADDON, ns = ...
 local floor, max, min, random = math.floor, math.max, math.min, math.random
 
+-- 0.0.7: DESPERATE_FROM / DESPERATE_LUCK live here because the odds solver has
+-- to agree with StepMatch about them. One constant, two readers.
+local DESPERATE_FROM = 20
+local DESPERATE_LUCK = 0.30
+
 local GOLD  = { 0.79, 0.64, 0.15 }
 local BONE  = { 0.87, 0.84, 0.77 }
 local DIM   = { 0.55, 0.52, 0.46 }
-local BLOOD = { 0.72, 0.20, 0.18 }
-local GREEN = { 0.55, 0.78, 0.42 }
-local RED   = { 0.80, 0.34, 0.30 }
+local BLOOD = { 0.72, 0.16, 0.13 }
+local GREEN = { 0.30, 0.78, 0.35 }
+local AMBER = { 0.95, 0.62, 0.18 }
 
-local ICON = "Interface\\Icons\\INV_Misc_Dice_02"
+local ROLL_TIME  = 0.55
+local FLASH_TIME = 0.9
+local POP_TIME   = 0.18
+local RUNNER_TICK = 6
 
 local SCHEMA = 5
-local RUNNER_EVERY = 6
 
--- board animation timings
-local FLASH_TIME = 0.9
-local POP_TIME = 0.18
-
--- The opening edge: rung 1 is meant to be winnable, and the edge bleeds away.
--- Rolling LOW is the strong play in a deathroll, so a player "luck" of 0.55
--- means 55% of the time you take the lower of two rolls.
-local EDGE_BASE = 0.55
-local EDGE_STEP = 0.025
-
----------------------------------------------------------------------
--- formatting
----------------------------------------------------------------------
-local function Comma(n)
-    local s = tostring(floor(n))
-    local out = (s:reverse():gsub("(%d%d%d)", "%1,")):reverse()
-    return (out:gsub("^,", ""))
-end
-
-local function Money(c)
-    c = floor((c or 0) + 0.5)
-    if c < 0 then return "-" .. Money(-c) end
-    local g = floor(c / 10000)
-    local s = floor((c % 10000) / 100)
-    local cu = c % 100
-    if g > 0 then return Comma(g) .. "g " .. s .. "s" end
-    if s > 0 then return s .. "s " .. cu .. "c" end
-    return cu .. "c"
-end
-
-local function Signed(c)
-    c = floor((c or 0) + 0.5)
-    if c < 0 then return "-" .. Money(-c) end
-    return "+" .. Money(c)
-end
-
-local function Pct(v)
-    return floor(v * 100 + 0.5) .. "%"
-end
-
----------------------------------------------------------------------
--- the ladder: name, zone, level, opening ceiling, min wager, purse
----------------------------------------------------------------------
 local NPCS = {
-    { "Kobold Vermin",           "Elwynn Forest",     "1-2",      100,     50,     300 },
-    { "Defias Thug",             "Elwynn Forest",     "3-4",      100,     65,     400 },
-    { "Frostmane Troll Whelp",   "Dun Morogh",        "3-4",      100,     90,     530 },
-    { "Murloc Forager",          "Elwynn Forest",     "5-6",      100,    115,     700 },
-    { "Riverpaw Outrunner",      "Elwynn Forest",     "6-7",      100,    155,     930 },
-    { "Leper Gnome",             "Dun Morogh",        "8-10",     150,    205,    1240 },
-    { "Goldtooth",               "Elwynn Forest",     "8",        150,    275,    1650 },
-    { "Morgan the Collector",    "Elwynn Forest",     "10",       150,    365,    2190 },
-    { "Hogger",                  "Elwynn Forest",     "11 elite", 150,    485,    2900 },
-    { "Defias Trapper",          "Westfall",          "12-13",    150,    645,    3870 },
-    { "Slark",                   "Westfall coast",    "11-15",    250,    860,    5150 },
-    { "Defias Messenger",        "Westfall",          "14-15",    250,   1140,    6850 },
-    { "Harvest Watcher",         "Westfall",          "14-15",    250,   1520,    9100 },
-    { "Defias Pillager",         "Westfall",          "14-15",    250,   2020,   12100 },
-    { "Stonesplinter Bonesnapper","Loch Modan",       "15-16",    250,   2680,   16100 },
-    { "Stonesplinter Digger",    "Loch Modan",        "18-19",    400,   3570,   21400 },
-    { "Brack",                   "Redridge Mountains","18-19",    400,   4750,   28500 },
-    { "Squiddic",                "Redridge Mountains","19",       400,   6320,   37900 },
-    { "Old Murk-Eye",            "Westfall",          "20 quest", 400,   8400,   50400 },
-    { "Cookie",                  "The Deadmines",     "20 elite", 400,  11160,   67000 },
-    { "Awakened Lich",           "Duskwood",          "25 elite", 600,  14850,   89100 },
-    { "Bone Chewer",             "Duskwood",          "26-27",    600,  19750,  118500 },
-    { "Boulderfist Ogre",        "Arathi Highlands",  "30+",      600,  26270,  157600 },
-    { "Drywhisker Kobold",       "Arathi Highlands",  "30+",      600,  34930,  209600 },
-    { "Daggerspine Raider",      "Arathi Highlands",  "30+",      600,  46470,  278800 },
-    { "Dark Iron Shadowcaster",  "Arathi Highlands",  "30+",     1000,  61800,  370800 },
-    { "Gelihast",                "Blackfathom Deeps", "23-26",   1000,  82200,  493200 },
-    { "Blind Mary",              "Duskwood",          "40",      1000, 109300,  655900 },
-    { "Amokarok",                "Duskwood",          "elite",   1000, 145400,  872400 },
-    { "Mutanus the Devourer",    "Wailing Caverns",   "elite",   1000, 193400, 1160300 },
+    { name = "Kobold Vermin",           short = "Kobold Vermin" },
+    { name = "Zhevra Charger",          short = "Zhevra Charger" },
+    { name = "Mudsnout Gnoll",          short = "Mudsnout Gnoll" },
+    { name = "Rockjaw Trogg",           short = "Rockjaw Trogg" },
+    { name = "Kolkari Blademaster",     short = "K. Blademaster" },
+    { name = "Frostmane Seer",          short = "Frostmane Seer" },
+    { name = "Warchief's Runner",       short = "Warchief's Runner" },
+    { name = "Baron Rivendare",         short = "Baron Rivendare" },
+    { name = "Rage Talon Fireclaw",     short = "R. Talon Fireclaw" },
+    { name = "Herald Volazj",           short = "Herald Volazj" },
+    { name = "Troll Berserker",         short = "Troll Berserker" },
+    { name = "Anub'Rekhan",             short = "Anub'Rekhan" },
+    { name = "Shade of Aran",           short = "Shade of Aran" },
+    { name = "Teron Gorefiend",         short = "Teron Gorefiend" },
+    { name = "Vashj",                   short = "Lady Vashj" },
+    { name = "Illidan Stormrage",       short = "Illidan" },
+    { name = "Kel'Thuzad",              short = "Kel'Thuzad" },
+    { name = "Kil'jaeden",              short = "Kil'jaeden" },
+    { name = "Archimonde",              short = "Archimonde" },
+    { name = "Garrosh Hellscream",      short = "Garrosh" },
+    { name = "Grommash Hellscream",     short = "Grommash" },
+    { name = "Orgrim Doomhammer",       short = "Orgrim" },
+    { name = "Anduin Lothar",           short = "Anduin Lothar" },
+    { name = "C'Thun",                  short = "C'Thun" },
+    { name = "Yogg-Saron",              short = "Yogg-Saron" },
+    { name = "N'Zoth",                  short = "N'Zoth" },
+    { name = "The Lich King",           short = "The Lich King" },
+    { name = "Deathwing",               short = "Deathwing" },
+    { name = "Sargeras",                short = "Sargeras" },
+    { name = "Mutanus the Devourer",    short = "Mutanus" },
 }
 
----------------------------------------------------------------------
--- affixes: rolled once per run, per rung
----------------------------------------------------------------------
+-- Affixes. Each one names the side it touches: "p" player, "e" enemy.
+-- kind "luck" is a bias on the roll, kind "gold" is the stake, "range" the ceiling.
 local AFFIXES = {
-    -- tier 1: weak
-    { id = "nervous",  name = "Nervous",         tier = 1, flaw = true,
-      text = "Their luck -10%",
-      apply = function(c) c.enemyLuck = c.enemyLuck - 0.10 end },
-    { id = "fingers",  name = "Quick Fingers",   tier = 1, flaw = false,
-      text = "Their luck +10%",
-      apply = function(c) c.enemyLuck = c.enemyLuck + 0.10 end },
-    { id = "drunk",    name = "Drunk",           tier = 1, flaw = true,
-      text = "Their luck -20%, purse +15%",
-      apply = function(c) c.enemyLuck = c.enemyLuck - 0.20; c.purse = c.purse * 1.15 end },
-    { id = "grit",     name = "Grit in the Eyes",tier = 1, flaw = false,
-      text = "Your luck -8%",
-      apply = function(c) c.playerLuck = c.playerLuck - 0.08 end },
-    { id = "loose",    name = "Loose Purse",     tier = 1, flaw = true,
-      text = "Purse +25%",
-      apply = function(c) c.purse = c.purse * 1.25 end },
-    { id = "tight",    name = "Tight Purse",     tier = 1, flaw = false,
-      text = "Purse -20%",
-      apply = function(c) c.purse = c.purse * 0.80 end },
-    { id = "tell",     name = "Cheater's Tell",  tier = 1, flaw = true,
-      text = "They open the roll",
-      apply = function(c) c.theyOpen = true end },
-    { id = "thick",    name = "Thick Skin",      tier = 1, flaw = false,
-      text = "Your Insurance -1 charge",
-      apply = function(c) c.insurance = max(0, c.insurance - 1) end },
-
-    -- tier 2: medium
-    { id = "marked",   name = "Marked Deck",     tier = 2, flaw = false,
-      text = "Their luck +25%",
-      apply = function(c) c.enemyLuck = c.enemyLuck + 0.25 end },
-    { id = "coldread", name = "Cold Read",       tier = 2, flaw = false,
-      text = "You must open the roll",
-      apply = function(c) c.forcePlayerOpen = true end },
-    { id = "edge",     name = "House Edge",      tier = 2, flaw = false,
-      text = "Your payout -15%",
-      apply = function(c) c.mult = c.mult * 0.85 end },
-    { id = "escort",   name = "Escort",          tier = 2, flaw = true,
-      text = "Purse +40%",
-      apply = function(c) c.purse = c.purse * 1.40 end },
-    { id = "silver",   name = "Silver Tongue",   tier = 2, flaw = false,
-      text = "10% of your win is taxed",
-      apply = function(c) c.winTax = c.winTax + 0.10 end },
-    { id = "desperate",name = "Desperate",       tier = 2, flaw = false,
-      text = "Below a 20 ceiling, their luck +30%",
-      apply = function(c) c.desperate = true end },
-
-    -- tier 3: strong
-    { id = "loaded",   name = "Loaded Dice",     tier = 3, flaw = false,
-      text = "Their luck +30%",
-      apply = function(c) c.enemyLuck = c.enemyLuck + 0.30 end },
-    { id = "stare",    name = "The Stare",       tier = 3, flaw = false,
-      text = "Your luck -20%",
-      apply = function(c) c.playerLuck = c.playerLuck - 0.20 end },
-    { id = "debt",     name = "Debt Collector",  tier = 3, flaw = false,
-      text = "A loss costs 150% of the wager",
-      apply = function(c) c.lossMult = c.lossMult * 1.5 end },
-    { id = "nullward", name = "Null Ward",       tier = 3, flaw = false,
-      text = "Your Insurance does nothing",
-      apply = function(c) c.insuranceBlocked = true end },
-    { id = "double",   name = "Double or Nothing",tier = 3, flaw = false,
-      text = "Win pays 2x, loss costs 2x",
-      apply = function(c) c.doubleOrNothing = true end },
-    { id = "cheapshot",name = "Cheap Shot",      tier = 3, flaw = false,
-      text = "Opens at half the ceiling",
-      apply = function(c) c.ceiling = max(20, floor(c.ceiling / 2)) end },
+    { key = "Sweaty",        kind = "luck",  side = "p", value =  0.18, text = "Your luck +18%" },
+    { key = "Tilted",       kind = "luck",  side = "p", value = -0.15, text = "Your luck -15%" },
+    { key = "Lucky Dice",   kind = "luck",  side = "p", value =  0.12, text = "Your luck +12%" },
+    { key = "Clumsy",       kind = "luck",  side = "p", value = -0.10, text = "Your luck -10%" },
+    { key = "Steady Hands", kind = "luck",  side = "p", value =  0.08, text = "Your luck +8%" },
+    { key = "Shaky",        kind = "luck",  side = "e", value =  0.14, text = "Their luck +14%" },
+    { key = "Hexed",        kind = "luck",  side = "e", value = -0.12, text = "Their luck -12%" },
+    { key = "Desperate",    kind = "luck",  side = "e", value =  DESPERATE_LUCK, text = "Under " .. DESPERATE_FROM .. ", their luck +30%" },
+    { key = "Drunk",        kind = "luck",  side = "e", value = -0.09, text = "Their luck -9%" },
+    { key = "Cursed",       kind = "luck",  side = "e", value =  0.10, text = "Their luck +10%" },
+    { key = "Greedy",       kind = "gold",  side = "e", value =  0.25, text = "Stake +25%" },
+    { key = "Cheap",        kind = "gold",  side = "e", value = -0.20, text = "Stake -20%" },
+    { key = "Taxing",       kind = "gold",  side = "e", value =  0.15, text = "Stake +15%" },
+    { key = "Generous",     kind = "gold",  side = "e", value = -0.15, text = "Stake -15%" },
+    { key = "Wide Table",   kind = "range", side = "e", value =  1.5,  text = "Wider range" },
+    { key = "Narrow Table", kind = "range", side = "e", value =  0.8,  text = "Narrower range" },
+    { key = "Sharp",        kind = "luck",  side = "e", value =  0.06, text = "Their luck +6%" },
+    { key = "Sloppy",       kind = "luck",  side = "e", value = -0.06, text = "Their luck -6%" },
+    { key = "Focused",      kind = "luck",  side = "p", value =  0.06, text = "Your luck +6%" },
+    { key = "Sweating",     kind = "luck",  side = "p", value = -0.06, text = "Your luck -6%" },
 }
 
-local AFFIX_BY_ID = {}
-for _, a in ipairs(AFFIXES) do AFFIX_BY_ID[a.id] = a end
-
----------------------------------------------------------------------
--- power-ups
--- Rolling low forces the other side into a tiny range, so "luck" for you is
--- keeping the lower roll and "luck" for them is keeping the higher one.
----------------------------------------------------------------------
 local POWERS = {
-    { id = "dice",   name = "Weighted Dice",  base = 200,  max = 10,
-      desc = "+8% chance to keep your lower roll, per rank",
-      apply = function(c, r) if r > 0 then c.playerLuck = c.playerLuck + 0.08 * r end end },
-    { id = "sand",   name = "Pocket Sand",    base = 250,  max = 8,
-      desc = "Their luck -8% per rank: fewer low rolls for them",
-      apply = function(c, r) if r > 0 then c.enemyLuck = c.enemyLuck - 0.08 * r end end },
-    { id = "marks",  name = "Marked Cards",   base = 300,  max = 10,
-      desc = "+12% payout per rank",
-      apply = function(c, r) if r > 0 then c.mult = c.mult + 0.12 * r end end },
-    { id = "hands",  name = "Fast Hands",     base = 150,  max = 2,
-      desc = "Roll ticker twice as fast",
-      apply = function(c, r) c.speed = 0.85 / (1 + 0.6 * r) end },
-    { id = "trick",  name = "Cheap Trick",    base = 800,  max = 1,
-      desc = "The enemy opens every match",
-      apply = function(c, r) if r > 0 then c.theyOpen = true end end },
-    { id = "cut",    name = "Banker's Cut",   base = 900,  max = 3,
-      desc = "Lose only 60/45/35% of the wager",
-      apply = function(c, r) if r > 0 then c.lossFrac = ({ 0.60, 0.45, 0.35 })[r] or 0.35 end end },
-    { id = "blood",  name = "Blood Pact",     base = 1200, max = 3,
-      desc = "+1 Insurance charge per match",
-      apply = function(c, r) c.insurance = c.insurance + r end },
-    { id = "runner", name = "The Runner",     base = 2500, max = 1,
-      desc = "Auto-plays matches, and earns offline" },
+    { key = "pocketSand",  name = "Pocket Sand",   cost = 250,    max = 9,  desc = "Their luck -8%" },
+    { key = "loadedDice",  name = "Loaded Dice",   cost = 800,    max = 6,  desc = "Your luck +6%" },
+    { key = "rubberChicken", name = "Rubber Chicken", cost = 1500, max = 4, desc = "Win pays +20%" },
+    { key = "insurance",   name = "Insurance",     cost = 2500,   max = 3,  desc = "Loss refunds 25%" },
+    { key = "mark",        name = "Marked Cards",  cost = 6000,   max = 2,  desc = "They open 40% less" },
+    { key = "runner",      name = "The Runner",    cost = 12000,  max = 5,  desc = "+2% bankroll / 6s" },
+    { key = "bluff",       name = "Bluff",         cost = 40000,  max = 3,  desc = "Win pays +40%" },
+    { key = "houseEdge",   name = "House Edge",    cost = 150000, max = 1,  desc = "Their luck -15%" },
 }
 
 local PRESTIGE = {
-    { id = "money",     name = "Old Money",      per = "+250 starting bankroll", cost = 2 },
-    { id = "bloodline", name = "Bloodline",      per = "+2% base Luck",          cost = 3 },
-    { id = "inside",    name = "Inside Man",     per = "-5% power-up cost",      cost = 4 },
-    { id = "inherit",   name = "Inherited Dice", per = "keep one power-up",      cost = 10, single = true },
+    { key = "charm",  name = "Bone Charm",   cost = 1,  desc = "+1 starting luck", max = 5 },
+    { key = "purse",  name = "Fat Purse",     cost = 2,  desc = "Start with +50% copper", max = 5 },
+    { key = "nerve",  name = "Gambler's Nerve", cost = 3, desc = "Lose less on a bust", max = 4 },
+    { key = "read",   name = "Cold Read",     cost = 4,  desc = "See the odds on every rung", max = 1 },
+    { key = "crown",  name = "Crown Dividend", cost = 6, desc = "+20% crowns", max = 3 },
 }
 
----------------------------------------------------------------------
--- saved variables
----------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- Database
+-- ----------------------------------------------------------------------------
+
 local DB
 
-local DEFAULTS = {
-    gold = 500, peak = 500, runs = 0, crowns = 0, bestRung = 1,
-    wins = 0, losses = 0, debt = 0, loanUsed = false, lastSeen = 0,
-    ended = false, lastCrowns = 0, stake = 0, forfeits = 0,
-    seenWelcome = false, minimapAngle = 220, streak = 0,
-}
+local function DefaultDB()
+    return {
+        schema   = SCHEMA,
+        gold     = 50,
+        best     = 1,
+        bestRung = 1,
+        crowns   = 0,
+        peak     = 0,
+        runs     = 0,
+        wins     = 0,
+        losses   = 0,
+        wager    = 50,
+        streak   = 0,
+        forfeits = 0,
+        stake    = 0,
+        ended    = false,
+        powers   = {},
+        prestige = {},
+        rolled   = {},
+        rolledN  = 0,
+        minimapAngle = 220,
+        seenWelcome  = false,
+        position = { x = 0, y = 0 },
+    }
+end
 
 local function InitDB()
-    if type(DeathrollBaronDB) ~= "table" then DeathrollBaronDB = {} end
+    DeathrollBaronDB = DeathrollBaronDB or DefaultDB()
     DB = DeathrollBaronDB
-    for k, v in pairs(DEFAULTS) do
+
+    local d = DefaultDB()
+    for k, v in pairs(d) do
         if DB[k] == nil then DB[k] = v end
     end
-    if type(DB.powers) ~= "table" then DB.powers = {} end
-    if type(DB.prestige) ~= "table" then DB.prestige = {} end
-    if type(DB.rolled) ~= "table" then DB.rolled = {} end
 
-    -- migrate anything a previous version could have written
-    DB.bestRung = min(#NPCS, max(1, floor(tonumber(DB.bestRung) or 1)))
-    DB.gold = max(0, floor(tonumber(DB.gold) or 0))
-    DB.peak = max(DB.gold, floor(tonumber(DB.peak) or 0))
-    DB.crowns = max(0, floor(tonumber(DB.crowns) or 0))
-    DB.stake = max(0, floor(tonumber(DB.stake) or 0))
-    DB.streak = max(0, floor(tonumber(DB.streak) or 0))
-    DB.minimapAngle = tonumber(DB.minimapAngle) or 220
-    DB.schema = SCHEMA
-end
-
----------------------------------------------------------------------
--- run seeding
----------------------------------------------------------------------
-local function AffixCount(rung)
-    if rung >= 24 then return 4 end
-    if rung >= 18 then return 3 end
-    if rung >= 12 then return 2 end
-    if rung >= 6 then return 1 end
-    return 0
-end
-
-local function AffixTier(rung)
-    if rung >= 20 then return 3 end
-    if rung >= 13 then return 2 end
-    return 1
-end
-
-local function StartRun()
-    DB.rolled = {}
-    local used = {}
-    for rung = 1, #NPCS do
-        local count, maxTier = AffixCount(rung), AffixTier(rung)
-        local pool = {}
-        for _, a in ipairs(AFFIXES) do
-            if a.tier <= maxTier and not used[a.id] then pool[#pool + 1] = a end
-        end
-        if #pool < count then
-            pool = {}
-            for _, a in ipairs(AFFIXES) do
-                if a.tier <= maxTier then pool[#pool + 1] = a end
-            end
-        end
-        local picked = {}
-        for i = 1, count do
-            if #pool == 0 then break end
-            local a = table.remove(pool, random(#pool))
-            used[a.id] = true
-            picked[#picked + 1] = a.id
-        end
-        DB.rolled[rung] = picked
+    if DB.schema ~= SCHEMA then
+        DB.schema = SCHEMA
     end
-    DB.rolledN = #NPCS
+
+    if type(DB.gold) ~= "number" or DB.gold < 0 then DB.gold = 50 end
+    if type(DB.peak) ~= "number" or DB.peak < 0 then DB.peak = 0 end
+    if type(DB.crowns) ~= "number" or DB.crowns < 0 then DB.crowns = 0 end
+    if not NPCS[DB.bestRung] then DB.bestRung = 1 end
+    if not NPCS[DB.best] then DB.best = 1 end
+    if type(DB.minimapAngle) ~= "number" then DB.minimapAngle = 220 end
+
+    DB.powers = DB.powers or {}
+    DB.prestige = DB.prestige or {}
+
+    if type(DB.wager) ~= "number" or DB.wager < 1 then DB.wager = 50 end
+    if DB.wager < DB.gold then DB.wager = DB.gold end
 end
 
----------------------------------------------------------------------
--- match configuration
----------------------------------------------------------------------
-local function BuildConfig(rung)
-    local n = NPCS[rung]
+local function Save()
+    -- SavedVariables only persist on logout/reload; nothing to do per-frame.
+end
+
+-- ----------------------------------------------------------------------------
+-- Config
+-- ----------------------------------------------------------------------------
+
+local EDGE_BASE = 0.55
+local EDGE_STEP = 0.025
+
+local function PlayerLuck()
+    local p = DB.prestige.charm or 0
+    return p * 0.02
+end
+
+local function BuildConfig(rung, seed)
+    local npc = NPCS[rung]
     local c = {
-        rung = rung, name = n[1], zone = n[2], level = n[3],
-        ceiling = n[4], purse = n[5], minWager = n[6],
-        playerLuck = 0, enemyLuck = 0, mult = 1.0, lossMult = 1.0,
-        lossFrac = 1.0, winTax = 0, theyOpen = false, insurance = 0,
-        insuranceBlocked = false, doubleOrNothing = false,
-        desperate = false, forcePlayerOpen = false, speed = 0.85,
-        affixes = {},
+        rung    = rung,
+        npc     = npc,
+        ceiling = 100 * rung,
+        stakeMult = 1,
+        playerLuck = PlayerLuck(),
+        enemyLuck  = 0,
+        desperate  = false,
+        theyOpen   = false,
+        affixes    = {},
     }
 
-    -- the house is kind at rung 1 and the kindness runs out by the low 20s
-    c.playerLuck = max(0, EDGE_BASE - EDGE_STEP * (rung - 1))
-    c.playerLuck = c.playerLuck + 0.02 * (DB.prestige.bloodline or 0)
-
-    for _, p in ipairs(POWERS) do
-        local r = DB.powers[p.id] or 0
-        if p.apply and r > 0 then p.apply(c, r) end
-    end
-
-    for _, id in ipairs(DB.rolled[rung] or {}) do
-        local a = AFFIX_BY_ID[id]
-        if a then
-            a.apply(c)
+    if rung > 5 then
+        local list = {}
+        for i = 1, #AFFIXES do
+            local a = AFFIXES[i]
+            if a.kind ~= "range" or rung >= 12 then
+                list[#list + 1] = a
+            end
+        end
+        math.randomseed(seed + rung * 7919)
+        local count = min(#list, 1 + floor((rung - 5) / 4))
+        for i = 1, count do
+            local j = random(i, #list)
+            list[i], list[j] = list[j], list[i]
+        end
+        for i = 1, count do
+            local a = list[i]
             c.affixes[#c.affixes + 1] = a
+            if a.kind == "luck" then
+                if a.key == "Desperate" then
+                    c.desperate = true
+                elseif a.side == "p" then
+                    c.playerLuck = c.playerLuck + a.value
+                else
+                    c.enemyLuck = c.enemyLuck + a.value
+                end
+            elseif a.kind == "gold" then
+                c.stakeMult = c.stakeMult + a.value
+            end
         end
     end
 
-    if c.forcePlayerOpen then c.theyOpen = false end
-    if c.doubleOrNothing then
-        c.mult = c.mult * 2
-        c.lossMult = c.lossMult * 2
+    local lv = DB.prestige.nerve or 0
+    if lv > 0 then c.stakeMult = c.stakeMult - 0.05 * lv end
+
+    local sand = DB.powers.pocketSand or 0
+    if sand > 0 then c.enemyLuck = c.enemyLuck - 0.08 * sand end
+    local dice = DB.powers.loadedDice or 0
+    if dice > 0 then c.playerLuck = c.playerLuck + 0.06 * dice end
+    local hb = DB.powers.houseEdge or 0
+    if hb > 0 then c.enemyLuck = c.enemyLuck - 0.15 * hb end
+
+    c.playerLuck = c.playerLuck + (EDGE_BASE - EDGE_STEP * (rung - 1))
+
+    c.playerLuck = max(-0.95, min(0.95, c.playerLuck))
+    c.enemyLuck  = max(-0.95, min(0.95, c.enemyLuck))
+
+    c.theyOpen = (rung % 3 == 0)
+
+    if rung >= 12 then
+        local mark = DB.powers.mark or 0
+        if mark > 0 and random() < 0.4 then c.theyOpen = not c.theyOpen end
     end
 
-    -- negative luck is meaningful: it means you get the *bad* of two rolls
-    c.playerLuck = min(0.95, max(-0.95, c.playerLuck))
-    c.enemyLuck = min(0.95, max(-0.95, c.enemyLuck))
-    c.purse = max(c.minWager, floor(c.purse))
     return c
 end
 
-local function PowerCost(p)
-    local r = DB.powers[p.id] or 0
-    local cost = p.base * (1.75 ^ r)
-    cost = cost * (1 - 0.05 * (DB.prestige.inside or 0))
-    return max(5, floor(floor(cost / 5 + 0.5) * 5))
-end
+-- ----------------------------------------------------------------------------
+-- The dice
+-- ----------------------------------------------------------------------------
 
-local function BuyPower(id)
-    local p
-    for _, q in ipairs(POWERS) do
-        if q.id == id then p = q end
-    end
-    if not p then return false end
-    local r = DB.powers[id] or 0
-    if r >= p.max then return false end
-    local cost = PowerCost(p)
-    if DB.gold < cost then return false end
-    DB.gold = DB.gold - cost
-    DB.powers[id] = r + 1
-    return true
-end
-
-local function PrestigeCost(entry)
-    local r = DB.prestige[entry.id] or 0
-    return entry.cost * (r + 1)
-end
-
-local function BuyPrestige(id)
-    local entry
-    for _, e in ipairs(PRESTIGE) do
-        if e.id == id then entry = e end
-    end
-    if not entry then return false end
-    local r = DB.prestige[id] or 0
-    if entry.single and r >= 1 then return false end
-    local cost = PrestigeCost(entry)
-    if DB.crowns < cost then return false end
-    DB.crowns = DB.crowns - cost
-    DB.prestige[id] = r + 1
-    return true
-end
-
----------------------------------------------------------------------
--- match engine
--- runnerAccum / runnerClock live up here on purpose: StartNewRun resets
--- them, and Lua resolves upvalues at compile time, so a local declared
--- below StartNewRun would be invisible to it and the assignment would
--- silently create a global instead.
----------------------------------------------------------------------
-local state
-local stateToken = 0
-local runnerAccum, runnerClock = 0, 0
-local GameOver, StartNewRun, BustCheck
-local Flash, Pop
-
-local function LogLine(s, kind, text)
-    s.log[#s.log + 1] = { kind = kind, text = text }
-    while #s.log > 6 do table.remove(s.log, 1) end
-end
-
--- wantLow: the roller wants a small number. bias > 0 helps that wish,
--- bias < 0 works against it. So the player passes true and the NPC false.
-local function DrawRoll(mx, bias, wantLow)
-    if mx < 1 then mx = 1 end
-    local a = random(1, mx)
-    if not bias or bias == 0 then return a end
-    local p, low = bias, wantLow
-    if p < 0 then p = -p; low = not low end
-    if random() < p then
-        local b = random(1, mx)
-        if low then a = min(a, b) else a = max(a, b) end
-    end
-    return a
-end
-
--- The stake left the wallet in StartMatch, so settlement works from the
--- escrow: a win adds the pot, a loss returns whatever fraction of the stake
--- you keep. Net is what the player actually gained or lost.
-local function FinishMatch(result)
-    local s = state
-    if not s or s.finished then return end
-    s.finished = true
-    s.result = result
-    local c = s.cfg
-    DB.stake = 0
-
-    if result == "win" then
-        local gross = floor(s.wager * c.mult)
-        local payout = max(0, min(gross - floor(gross * c.winTax), c.purse))
-        DB.gold = DB.gold + payout
-        DB.wins = DB.wins + 1
-        DB.streak = (DB.streak or 0) + 1
-        s.payout = payout
-        s.net = payout - s.wager
-        LogLine(s, "win", "You take " .. Money(payout) .. " (net " .. Signed(s.net) .. ").")
-        if DB.debt > 0 then
-            local pay = min(DB.debt, DB.gold)
-            DB.gold = DB.gold - pay
-            DB.debt = DB.debt - pay
-            LogLine(s, "bank", "The shark takes " .. Money(pay) .. ".")
-        end
-        if c.rung >= DB.bestRung and c.rung < #NPCS then
-            DB.bestRung = c.rung + 1
-            LogLine(s, "bank", "Rung unlocked: " .. NPCS[DB.bestRung][1] .. ".")
-        end
-        Flash(GREEN[1], GREEN[2], GREEN[3])
+-- Roll 1..max and keep two, biased by luck.
+-- wantLow: the roller is trying to keep the SMALL number. In a deathroll that is
+-- the player, always: a small number leaves the opponent almost nothing to roll
+-- inside, so their odds of rolling a 1 go up. The enemy keeps the HIGH roll.
+-- Negative luck is meaningful: it means you get the bad of two.
+local function DrawRoll(m, bias, wantLow)
+    local a = random(1, m)
+    local b = random(1, m)
+    local p = min(1, math.abs(bias))
+    local keepA
+    if bias == 0 then
+        keepA = random() < 0.5
+    elseif bias > 0 then
+        keepA = random() < p
     else
-        local loss = floor(s.wager * c.lossMult * c.lossFrac)
-        DB.gold = DB.gold + (s.wager - loss)
-        DB.losses = DB.losses + 1
-        DB.streak = 0
-        s.loss = loss
-        s.net = -loss
-        LogLine(s, "lose", "You pay " .. Money(loss) .. ".")
-        Flash(BLOOD[1], BLOOD[2], BLOOD[3])
+        keepA = random() >= p
     end
 
-    if DB.gold < 0 then DB.gold = 0 end
-    DB.peak = max(DB.peak, DB.gold)
-    BustCheck()
+    local lo, hi = min(a, b), max(a, b)
+    if keepA then
+        if wantLow then return lo else return hi end
+        return a
+    else
+        if wantLow then return hi else return lo end
+        return b
+    end
 end
 
-local function StepMatch()
-    local s = state
-    if not s or s.finished then return end
-    local c = s.cfg
-    local isPlayer = (s.turn == "player")
-    local bias = isPlayer and c.playerLuck or c.enemyLuck
-    if c.desperate and not isPlayer and s.max <= 20 then bias = bias + 0.30 end
+-- ----------------------------------------------------------------------------
+-- Odds
+-- ----------------------------------------------------------------------------
 
-    -- you want the low roll, they want the high one. That is the whole game.
-    local roll = DrawRoll(s.max, bias, isPlayer)
-
-    if roll == 1 and isPlayer and s.insurance > 0 and not c.insuranceBlocked then
-        s.insurance = s.insurance - 1
-        LogLine(s, "bank", "Blood Pact burns a charge. Roll again.")
-        return
-    end
-
-    -- the board keeps both sides on screen, so each roll says whose it was
-    if isPlayer then s.lastPlayer = roll else s.lastEnemy = roll end
-    LogLine(s, isPlayer and "you" or "them", (isPlayer and "you " or "them ") .. roll)
-    Pop(isPlayer)
-
-    s.max = roll
-    if roll == 1 then
-        FinishMatch(isPlayer and "lose" or "win")
-        return
-    end
-    s.turn = isPlayer and "enemy" or "player"
-end
-
--- manual: the ticker is not started; the player advances each roll by clicking
-local function StartMatch(rung, wager, manual)
-    if DB.ended then return false end
-    local c = BuildConfig(rung)
-    wager = max(c.minWager, floor(wager or c.minWager))
-    if wager > DB.gold then return false end
-
-    -- the stake leaves the wallet here, not at settlement. That is the whole
-    -- point: reloading out of a bad opening roll now forfeits the stake
-    -- instead of walking away from the match for free.
-    DB.gold = DB.gold - wager
-    DB.stake = wager
-
-    state = {
-        cfg = c, wager = wager, max = c.ceiling,
-        turn = c.theyOpen and "enemy" or "player",
-        insurance = c.insurance, log = {}, finished = false,
-        manual = manual and true or false,
-        lastPlayer = nil, lastEnemy = nil,
-    }
-    stateToken = stateToken + 1
-    local token = stateToken
-    LogLine(state, "bank", c.name .. " sits down. " .. Money(wager) .. " on the table.")
-
-    if state.manual then return true end
-
-    local function tick()
-        if token ~= stateToken then return end
-        local s = state
-        if not s or s.finished or s.manual then return end
-        StepMatch()
-        if not s.finished and not s.manual then
-            C_Timer.After(s.cfg.speed, tick)
-        end
-        ns.Refresh()
-    end
-
-    C_Timer.After(0.30, tick)
-    return true
-end
-
-local function SimulateMatch(rung, wager)
-    local c = BuildConfig(rung)
-    local mx = c.ceiling
-    local turn = c.theyOpen and "enemy" or "player"
-    local guard = 0
-    while guard < 500 do
-        guard = guard + 1
-        local isPlayer = (turn == "player")
-        local bias = isPlayer and c.playerLuck or c.enemyLuck
-        if c.desperate and not isPlayer and mx <= 20 then bias = bias + 0.30 end
-        local roll = DrawRoll(mx, bias, isPlayer)
-        mx = roll
-        if roll == 1 then
-            if isPlayer then
-                return "lose", floor(wager * c.lossMult * c.lossFrac)
-            end
-            local gross = floor(wager * c.mult)
-            return "win", max(0, min(gross - floor(gross * c.winTax), c.purse))
-        end
-        turn = isPlayer and "enemy" or "player"
-    end
-    return "win", 0
-end
-
----------------------------------------------------------------------
--- exact win odds
--- A[m]: you to move at range m.  B[m]: them to move at range m.
--- Rows only depend on smaller ranges, so one table grown to the largest
--- ceiling in use answers every question after it.
----------------------------------------------------------------------
+-- The survival tables, exactly, not by sampling.
+--
+-- A[r] = the roller-to-move wins at range r when the player is to move.
+-- B[r] = the roller-to-move wins at range r when the enemy is to move.
+-- Rows only depend on smaller rows, so one table grown to the largest ceiling in
+-- use answers every roll after that: the old version rebuilt all m^2 cells on
+-- every call, which at rung 10 (ceiling 1000) was half a second of main term.
 local oddsCache = {}
 
-local function OddsUpTo(m, pLuck, eLuck)
+local function OddsUpTo(m, pLuck, eLuck, desperate)
     m = max(1, floor(m))
-    local key = floor(pLuck * 1000) .. ":" .. floor(eLuck * 1000)
+    local key = floor(pLuck * 1000) .. ":" .. floor(eLuck * 1000) .. ":" .. (desperate and 1 or 0)
     local entry = oddsCache[key]
     if not entry then
         entry = { A = { [1] = 0 }, B = { [1] = 1 }, n = 1 }
@@ -562,12 +301,18 @@ local function OddsUpTo(m, pLuck, eLuck)
     end
 
     local A, B = entry.A, entry.B
-    local qp, qe = min(1, math.abs(pLuck)), min(1, math.abs(eLuck))
+    local qp = min(1, math.abs(pLuck))
     local pWantLow = pLuck >= 0
-    local eWantLow = eLuck < 0
 
     for r = entry.n + 1, m do
-        local inv = 1 / r
+        -- Desperate raises their luck once the range is small; that is exactly
+        -- the range where it matters, so each row carries its own enemy bias.
+        local eb = eLuck
+        if desperate and r <= DESPERATE_FROM then eb = eb + DESPERATE_LUCK end
+        local qe = min(1, math.abs(eb))
+        local eWantLow = eb < 0
+
+        local inv  = 1 / r
         local inv2 = inv * inv
         local a, b = 0, 0
         for x = 1, r do
@@ -576,10 +321,10 @@ local function OddsUpTo(m, pLuck, eLuck)
             local pp = (1 - qp) * inv + qp * (pWantLow and pmin or pmax)
             local pe = (1 - qe) * inv + qe * (eWantLow and pmin or pmax)
             if x == 1 then
-                b = b + pe            -- they rolled 1: you win
+                b = b + pe
             else
-                a = a + pp * B[x]     -- your roll x, then them to move
-                b = b + pe * A[x]     -- their roll x, then you to move
+                a = a + pp * B[x]
+                b = b + pe * A[x]
             end
         end
         A[r], B[r] = a, b
@@ -589,925 +334,246 @@ local function OddsUpTo(m, pLuck, eLuck)
     return A, B
 end
 
--- the chance you take the hand from here, read off the table for the ceiling
+-- Probability the player wins from here. live: consult the running match.
 local function WinChance(cfg, live)
-    local A, B = OddsUpTo(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck)
+    local A, B = OddsUpTo(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck, cfg.desperate and true or false)
     local m = live and min(state.max, cfg.ceiling) or cfg.ceiling
     local youMove = live and (state.turn == "player") or (not live and not cfg.theyOpen)
     return youMove and A[m] or B[m]
 end
 
--- exactly one bust per run: there is no path that awards crowns twice for the
--- same peak, and no path that awards them while the run is already over.
-GameOver = function()
-    if DB.ended then return end
-    DB.ended = true
-    state = nil
+-- ----------------------------------------------------------------------------
+-- State
+-- ----------------------------------------------------------------------------
+
+local state = {
+    live = false,
+    cfg  = nil,
+    max  = 1,
+    turn = "player",
+    last = nil,
+    history = {},
+    wager = 0,
+    seen = 0,
+}
+
+local runnerAccum, runnerClock = 0, 0
+
+local function Log(line, r, g, b)
+    table.insert(state.history, 1, { text = line, r = r or 0.85, g = g or 0.82, b = b or 0.72 })
+    while #state.history > 6 do table.remove(state.history) end
+end
+
+local function StartRun()
+    DB.peak = max(DB.peak or 0, DB.gold)
+    DB.ended = false
     DB.stake = 0
-    DB.streak = 0
-    -- sqrt over a much smaller divisor, and never less than one: a bad run
-    -- still has to buy you something or the loop never starts.
-    local earned = max(1, floor(math.sqrt(max(0, DB.peak) / 250)))
-    DB.crowns = DB.crowns + earned
-    DB.lastCrowns = earned
-    DB.runs = DB.runs + 1
-    if ns.ShowPrestige then ns.ShowPrestige(earned) end
+    DB.rolled = {}
+    DB.rolledN = 0
+    runnerAccum, runnerClock = 0, 0
+    state.history = {}
+    state.last = nil
+    state.seen = 0
 end
 
--- if you cannot cover the cheapest wager and the shark has already been taken,
--- the run is over. Without this the window becomes a dead end.
-BustCheck = function()
-    if DB.ended then return end
-    if state and not state.finished then return end
-    if DB.gold >= NPCS[1][6] then return end
-    if not DB.loanUsed then return end
-    GameOver()
+local function StartMatch(rung)
+    local cfg = BuildConfig(rung, DB.rolledN or 0)
+    local stake = floor(DB.wager * cfg.stakeMult)
+    stake = max(1, min(stake, DB.gold))
+
+    DB.gold = DB.gold - stake
+    DB.stake = stake
+
+    state.live = true
+    state.cfg  = cfg
+    state.max  = cfg.ceiling
+    state.turn = cfg.theyOpen and "enemy" or "player"
+    state.wager = stake
+    state.last = nil
+
+    Log("stake " .. stake .. "c on " .. cfg.npc.short, 0.95, 0.62, 0.18)
+    Log(cfg.theyOpen and "they open" or "you open", 0.85, 0.82, 0.72)
 end
 
-StartNewRun = function()
-    local keepId, keepRank
-    if (DB.prestige.inherit or 0) > 0 then
-        for _, p in ipairs(POWERS) do
-            local r = DB.powers[p.id] or 0
-            if r > 0 and (not keepRank or r > keepRank) then
-                keepId, keepRank = p.id, r
-            end
+local function FinishMatch(won)
+    local cfg = state.cfg
+    local stake = DB.stake or 0
+    local base = stake
+    local payout = 0
+
+    if won then
+        payout = base
+        local chick = DB.powers.rubberChicken or 0
+        if chick > 0 then payout = payout + floor(base * 0.20 * chick) end
+        local bluff = DB.powers.bluff or 0
+        if bluff > 0 then payout = payout + floor(base * 0.40 * bluff) end
+        DB.gold = DB.gold + stake + payout
+        DB.wins = DB.wins + 1
+        DB.streak = (DB.streak or 0) + 1
+        Log("you take the pot . +" .. payout .. "c", 0.30, 0.78, 0.35)
+    else
+        DB.losses = DB.losses + 1
+        DB.streak = 0
+        local ins = DB.powers.insurance or 0
+        if ins > 0 then
+            local refund = floor(stake * 0.25 * ins)
+            DB.gold = DB.gold + refund
+            payout = -stake + refund
+            Log("lost . refund " .. refund .. "c", 0.72, 0.16, 0.13)
+        else
+            payout = -stake
+            Log("lost . -" .. stake .. "c", 0.72, 0.16, 0.13)
         end
     end
-    DB.powers = {}
-    if keepId then DB.powers[keepId] = keepRank end
-    DB.gold = 500 + 250 * (DB.prestige.money or 0)
-    DB.peak = DB.gold
-    DB.bestRung = 1
-    DB.wins, DB.losses = 0, 0
-    DB.debt, DB.loanUsed = 0, false
-    DB.ended, DB.lastCrowns = false, 0
+
+    DB.peak = max(DB.peak or 0, DB.gold)
     DB.stake = 0
-    DB.streak = 0
-    state = nil
-    stateToken = stateToken + 1
-    -- a new run starts the Runner's clock from zero
-    runnerAccum, runnerClock = 0, 0
-    StartRun()
-    ns.selectedRung = 1
-    ns.wager = NPCS[1][6]
-end
+    state.live = false
+    state.net = payout
+    state.flash = won and 1 or -1
+    state.flashT = FLASH_TIME
 
-local function Borrow()
-    if DB.loanUsed or DB.ended then return false end
-    DB.loanUsed = true
-    DB.debt = DB.debt + 450
-    DB.gold = DB.gold + 300
-    return true
-end
-
----------------------------------------------------------------------
--- the runner: idle and offline income
----------------------------------------------------------------------
-local function RunnerStep()
-    if (DB.powers.runner or 0) < 1 then return end
-    if DB.ended then return end
-    if state and not state.finished then return end
-    local rung = min(DB.bestRung, #NPCS)
-    local wager = NPCS[rung][6]
-    if DB.gold < wager then return end
-    local res, amount = SimulateMatch(rung, wager)
-    if res == "win" then
-        DB.gold = DB.gold + amount
-        DB.wins = DB.wins + 1
-    else
-        DB.gold = DB.gold - amount
-        DB.losses = DB.losses + 1
+    if state.cfg and state.cfg.rung >= DB.bestRung then
+        DB.bestRung = min(#NPCS, state.cfg.rung + 1)
     end
-    if DB.gold < 0 then DB.gold = 0 end
-    DB.peak = max(DB.peak, DB.gold)
-    BustCheck()
 end
 
-local function ApplyOffline()
-    if (DB.powers.runner or 0) < 1 then return 0 end
-    local elapsed = time() - (DB.lastSeen or 0)
-    if elapsed < 60 then return 0 end
-    elapsed = min(elapsed, 8 * 3600)
-    local matches = floor(elapsed / RUNNER_EVERY)
-    if matches < 1 then return 0 end
-    local rung = min(DB.bestRung, #NPCS)
-    local wager = NPCS[rung][6]
-    if DB.gold < wager then return 0 end
-    local sample = min(matches, 60)
-    local net = 0
-    for _ = 1, sample do
-        local res, amount = SimulateMatch(rung, wager)
-        if res == "win" then net = net + amount else net = net - amount end
+local function StepMatch()
+    local s = state
+    local c = s.cfg
+    local isPlayer = (s.turn == "player")
+    local bias = isPlayer and c.playerLuck or c.enemyLuck
+
+    if c.desperate and not isPlayer and s.max <= DESPERATE_FROM then
+        bias = bias + DESPERATE_LUCK
     end
-    net = floor(net * (matches / sample) * 0.60)
-    DB.gold = max(0, DB.gold + net)
-    DB.peak = max(DB.peak, DB.gold)
-    return net
-end
 
----------------------------------------------------------------------
--- ui
--- Every function the anchors below call is forward-declared here first.
--- Lua binds upvalues when the chunk compiles, so a name used above its own
--- `local function` line would quietly become a global lookup.
----------------------------------------------------------------------
-local frame, prestigeFrame, welcomeFrame, minimapBtn
-local W = { affix = {}, log = {}, shop = {}, prestige = {} }
-local AdjustWager, SelectRung, DoRoll, StartNewRunUI
-local Toggle, ShowWelcome, CreateMinimap
+    local roll = DrawRoll(s.max, bias, isPlayer)
+    s.last = { roll = roll, player = isPlayer, pop = POP_TIME }
 
-ns.selectedRung = 1
-ns.wager = 50
-
--- one safe virtual font, every size set explicitly: no dependency on
--- GameFontNormalHuge / Large / Small existing on this client.
-local function FS(parent, color, size)
-    local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    local path, _, flags = fs:GetFont()
-    if path and size then fs:SetFont(path, size, flags) end
-    if color then fs:SetTextColor(color[1], color[2], color[3]) end
-    return fs
-end
-
-local function Btn(parent, text, w, h, size, onClick)
-    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-    b:SetSize(w, h)
-    b:SetText(text)
-    local fs = b:GetFontString()
-    if fs and size then
-        local path, _, flags = fs:GetFont()
-        if path then fs:SetFont(path, size, flags) end
+    if roll == 1 then
+        if isPlayer then
+            Log("you 1", 0.72, 0.16, 0.13)
+            FinishMatch(false)
+        else
+            Log("them 1", 0.30, 0.78, 0.35)
+            FinishMatch(true)
+        end
+        return
     end
-    b:SetScript("OnClick", onClick)
-    return b
+
+    Log((isPlayer and "you " or "them ") .. roll, isPlayer and 0.95 or 0.72, isPlayer and 0.62 or 0.16, isPlayer and 0.18 or 0.13)
+
+    s.max = roll - 1
+    s.turn = isPlayer and "enemy" or "player"
+    s.seen = s.seen + 1
 end
 
-local function Panel(parent, w, h, borderColor)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetSize(w, h)
+-- ----------------------------------------------------------------------------
+-- UI
+-- ----------------------------------------------------------------------------
+
+local W
+
+local function Tension(m)
+    if m > 60 then return "plenty of room" end
+    if m > 25 then return "every number matters" end
+    if m > 12 then return "the table goes quiet" end
+    if m > 4  then return "no room left" end
+    return "one number between you"
+end
+
+local function C3(f, r, g, b)
+    f:SetTextColor(r, g, b)
+end
+
+local function Font(f, size, flags)
+    local path = "Fonts\\FRIZQT__.TTF"
+    if not f:SetFont(path, size, flags or "") then
+        f:SetFontObject("GameFontNormal")
+    end
+end
+
+local Build
+
+local function BuildFrame()
+    local f = CreateFrame("Frame", "DeathrollBaronFrame", UIParent)
+    f:SetSize(400, 630)
+    f:SetPoint("CENTER", 0, 0)
+    f:SetFrameStrata("DIALOG")
+    f:SetClampedToScreen(true)
     f:EnableMouse(true)
-    local edge = f:CreateTexture(nil, "BACKGROUND", nil, -8)
-    edge:SetAllPoints()
-    edge:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], 0.85)
+    f:SetMovable(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        local x, y = self:GetCenter()
+        DB.position.x = floor(x - UIParent:GetWidth() / 2)
+        DB.position.y = floor(y - UIParent:GetHeight() / 2)
+    end)
+
     local bg = f:CreateTexture(nil, "BACKGROUND")
-    bg:SetPoint("TOPLEFT", 2, -2)
-    bg:SetPoint("BOTTOMRIGHT", -2, 2)
-    bg:SetColorTexture(0.07, 0.06, 0.05, 0.97)
-    f.edge = edge
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.05, 0.04, 0.03, 0.96)
+
+    local border = f:CreateTexture(nil, "BORDER")
+    border:SetPoint("TOPLEFT", -1, 1)
+    border:SetPoint("BOTTOMRIGHT", 1, -1)
+    border:SetColorTexture(0.35, 0.28, 0.12, 0.9)
+
+    local title = f:CreateFontString(nil, "OVERLAY")
+    Font(title, 18)
+    title:SetPoint("TOPLEFT", 14, -12)
+    title:SetText("DEATHROLL BARON")
+    C3(title, GOLD[1], GOLD[2], GOLD[3])
+
+    local close = CreateFrame("Button", nil, f)
+    close:SetSize(20, 20)
+    close:SetPoint("TOPRIGHT", -12, -12)
+    close:SetNormalFontObject("GameFontNormal")
+    close:SetText("X")
+    close:SetScript("OnClick", function() f:Hide() end)
+
+    f.title = title
     return f
 end
 
--- the tour copy: five lines, each sized to sit in one slot at 11pt
-local TOUR = {
-    "A deathroll opens at 1-100. You trade rolls inside a shrinking range, and whoever rolls a 1 pays the pot.",
-    "You want the LOW roll: a small number leaves them almost nothing to roll in. High rolls are how you lose.",
-    "Set the stake, then press ROLL. The stake leaves your purse the moment the hand starts.",
-    "Shift-click ROLL to step one roll at a time. The ODD% line under the board is your real chance.",
-    "Between hands, buy power-ups. Go broke and the table takes you: Bone Crowns buy permanent upgrades.",
-}
-
--- animation state for the roll board
-local flashT, pulsing = 0, false
-local popT, popTarget = 0, nil
-
-local function BoardAlpha(a)
-    if W.youFlash then W.youFlash:SetAlpha(a) end
-    if W.themFlash then W.themFlash:SetAlpha(a) end
+Build = function()
+    W = BuildFrame()
 end
 
-local function BoardColor(r, g, b)
-    if W.youFlash then W.youFlash:SetColorTexture(r, g, b, 1) end
-    if W.themFlash then W.themFlash:SetColorTexture(r, g, b, 1) end
+-- ----------------------------------------------------------------------------
+-- Commands
+-- ----------------------------------------------------------------------------
+
+local function Print(msg)
+    DEFAULT_CHAT_FRAME:AddMessage("|cffd4a017Deathroll Baron|r  " .. msg)
 end
 
--- a winning hand paints the board green, a losing one red, then it fades
-Flash = function(r, g, b)
-    if not W.youFlash then return end
-    pulsing = false
-    flashT = FLASH_TIME
-    BoardColor(r, g, b)
-    BoardAlpha(0.40)
-end
-
--- each roll punches its own number so you can see which side just moved
-Pop = function(forPlayer)
-    local fs = forPlayer and W.youNum or W.themNum
-    if not fs then return end
-    popTarget = fs
-    popT = POP_TIME
-    fs:SetAlpha(0.15)
-end
-
-local function Build()
-    frame = CreateFrame("Frame", "DeathrollBaronFrame", UIParent)
-    frame:SetSize(400, 630)
-    frame:SetPoint("CENTER")
-    frame:SetFrameStrata("DIALOG")
-    frame:EnableMouse(true)
-    frame:SetMovable(true)
-    frame:SetClampedToScreen(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-
-    local edge = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-    edge:SetAllPoints()
-    edge:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.55)
-    local bg = frame:CreateTexture(nil, "BACKGROUND")
-    bg:SetPoint("TOPLEFT", 2, -2)
-    bg:SetPoint("BOTTOMRIGHT", -2, 2)
-    bg:SetColorTexture(0.07, 0.06, 0.05, 0.97)
-
-    W.title = FS(frame, GOLD, 14)
-    W.title:SetPoint("TOP", 0, -12)
-    W.title:SetText("DEATHROLL BARON")
-
-    local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", -3, -3)
-
-    -- reopens the tour; the splash itself only auto-shows once
-    W.help = Btn(frame, "?", 18, 18, 11, function() ShowWelcome() end)
-    W.help:SetPoint("TOPRIGHT", -38, -8)
-
-    W.gold = FS(frame, GOLD, 22)
-    W.gold:SetPoint("TOPLEFT", 16, -38)
-
-    W.sub = FS(frame, DIM, 11)
-    W.sub:SetPoint("TOPLEFT", 16, -64)
-
-    W.npc = FS(frame, BONE, 15)
-    W.npc:SetPoint("TOPLEFT", 16, -92)
-    W.npcInfo = FS(frame, DIM, 11)
-    W.npcInfo:SetPoint("TOPLEFT", 16, -112)
-
-    -- 13pt apart, not 15: the four-affix rungs need to clear the roll board
-    for i = 1, 4 do
-        local fs = FS(frame, DIM, 11)
-        fs:SetPoint("TOPLEFT", 16, -128 - (i - 1) * 13)
-        fs:SetText("")
-        W.affix[i] = fs
-    end
-
-    -- the board: two panels, your roll and theirs, never one shared number
-    W.youPanel = Panel(frame, 184, 64, GOLD)
-    W.youPanel:SetPoint("TOPLEFT", 8, -184)
-    W.youEdge = W.youPanel.edge
-
-    W.youFlash = W.youPanel:CreateTexture(nil, "BACKGROUND", nil, 1)
-    W.youFlash:SetAllPoints()
-    W.youFlash:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
-    W.youFlash:SetAlpha(0)
-
-    W.youLabel = FS(W.youPanel, DIM, 10)
-    W.youLabel:SetPoint("TOP", 0, -4)
-    W.youLabel:SetText("YOUR ROLL")
-
-    W.youNum = FS(W.youPanel, GOLD, 32)
-    W.youNum:SetPoint("TOP", 0, -17)
-    W.youNum:SetText("--")
-
-    W.themPanel = Panel(frame, 184, 64, RED)
-    W.themPanel:SetPoint("TOPRIGHT", -8, -184)
-    W.themEdge = W.themPanel.edge
-
-    W.themFlash = W.themPanel:CreateTexture(nil, "BACKGROUND", nil, 1)
-    W.themFlash:SetAllPoints()
-    W.themFlash:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
-    W.themFlash:SetAlpha(0)
-
-    W.themLabel = FS(W.themPanel, DIM, 10)
-    W.themLabel:SetPoint("TOP", 0, -4)
-    W.themLabel:SetText("THEIR ROLL")
-
-    W.themNum = FS(W.themPanel, RED, 32)
-    W.themNum:SetPoint("TOP", 0, -17)
-    W.themNum:SetText("--")
-
-    W.range = FS(frame, DIM, 11)
-    W.range:SetPoint("TOP", 0, -252)
-    W.luck = FS(frame, GOLD, 11)
-    W.luck:SetPoint("TOP", 0, -268)
-
-    for i = 1, 6 do
-        local fs = FS(frame, BONE, 11)
-        fs:SetPoint("TOPLEFT", 20, -288 - (i - 1) * 14)
-        fs:SetText("")
-        W.log[i] = fs
-    end
-
-    W.prev = Btn(frame, "<", 24, 18, 10, function() SelectRung(-1) end)
-    W.prev:SetPoint("TOPRIGHT", -60, -90)
-    W.next = Btn(frame, ">", 24, 18, 10, function() SelectRung(1) end)
-    W.next:SetPoint("TOPRIGHT", -30, -90)
-
-    W.minus = Btn(frame, "-", 28, 22, 12, function() AdjustWager(-1) end)
-    W.minus:SetPoint("TOPLEFT", 16, -368)
-    W.plus = Btn(frame, "+", 28, 22, 12, function() AdjustWager(1) end)
-    W.plus:SetPoint("TOPRIGHT", -16, -368)
-
-    W.wager = FS(frame, BONE, 13)
-    W.wager:SetPoint("TOP", 0, -372)
-
-    -- 108 wide and MIN nudged right: at 130 the two boxes overlapped by 16px
-    W.loan = Btn(frame, "Take the loan", 108, 20, 10, function()
-        if Borrow() then ns.Refresh() end
-    end)
-    W.loan:SetPoint("TOPLEFT", 16, -396)
-    W.loan:Hide()
-
-    W.min = Btn(frame, "MIN", 70, 20, 10, function()
-        ns.wager = BuildConfig(ns.selectedRung).minWager
-        ns.Refresh()
-    end)
-    W.min:SetPoint("TOPRIGHT", -190, -396)
-
-    W.half = Btn(frame, "HALF", 70, 20, 10, function()
-        local cfg = BuildConfig(ns.selectedRung)
-        ns.wager = max(cfg.minWager, floor(DB.gold / 2))
-        ns.Refresh()
-    end)
-    W.half:SetPoint("TOPRIGHT", -116, -396)
-
-    W.allin = Btn(frame, "ALL IN", 70, 20, 10, function()
-        local cfg = BuildConfig(ns.selectedRung)
-        ns.wager = max(cfg.minWager, DB.gold)
-        ns.Refresh()
-    end)
-    W.allin:SetPoint("TOPRIGHT", -42, -396)
-
-    W.roll = Btn(frame, "ROLL", 368, 40, 16, function() DoRoll() end)
-    W.roll:SetPoint("TOP", 0, -424)
-
-    -- under the button, in its own band: above it would clip the quick buttons
-    W.hint = FS(frame, DIM, 10)
-    W.hint:SetPoint("TOP", W.roll, "BOTTOM", 0, -2)
-    W.hint:SetText("")
-
-    for i, p in ipairs(POWERS) do
-        local col = (i - 1) % 2
-        local row = floor((i - 1) / 2)
-        local b = Btn(frame, p.name, 178, 24, 10, function(self)
-            BuyPower(self.powerId)
-            BustCheck()
-            ns.Refresh()
-        end)
-        b:SetPoint("TOPLEFT", 14 + col * 192, -484 - row * 28)
-        b.powerId = p.id
-        b:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:AddLine(p.name, GOLD[1], GOLD[2], GOLD[3])
-            GameTooltip:AddLine(p.desc, 1, 1, 1, true)
-            GameTooltip:Show()
-        end)
-        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        W.shop[i] = b
-    end
-
-    -- one animation driver: board pulse, result flash, per-roll pop
-    frame:SetScript("OnUpdate", function(_, elapsed)
-        local liveNow = state and not state.finished
-
-        if flashT > 0 then
-            flashT = max(0, flashT - elapsed)
-            BoardAlpha((flashT / FLASH_TIME) * 0.40)
-        elseif liveNow then
-            if not pulsing then
-                pulsing = true
-                BoardColor(GOLD[1], GOLD[2], GOLD[3])
-            end
-            BoardAlpha(0.05 + 0.05 * (0.5 + 0.5 * math.sin(GetTime() * 2.6)))
-        elseif pulsing then
-            pulsing = false
-            BoardAlpha(0)
-        end
-
-        if popT > 0 then
-            popT = max(0, popT - elapsed)
-            if popTarget then
-                popTarget:SetAlpha(1 - (popT / POP_TIME) * 0.85)
-                if popT == 0 then popTarget = nil end
-            end
-        end
-    end)
-
-    frame:Hide()
-
-    -- prestige overlay: crowns are spendable, in place
-    prestigeFrame = Panel(UIParent, 360, 300, BLOOD)
-    prestigeFrame:SetPoint("CENTER")
-    prestigeFrame:SetFrameStrata("DIALOG")
-
-    local ptitle = FS(prestigeFrame, BLOOD, 16)
-    ptitle:SetPoint("TOP", 0, -18)
-    ptitle:SetText("THE TABLE TAKES YOU")
-
-    W.pCrowns = FS(prestigeFrame, GOLD, 14)
-    W.pCrowns:SetPoint("TOP", 0, -44)
-    W.pCrowns:SetText("")
-
-    for i, e in ipairs(PRESTIGE) do
-        local b = Btn(prestigeFrame, e.name, 300, 22, 11, function(self)
-            if BuyPrestige(self.prestigeId) then ns.ShowPrestige(DB.lastCrowns) end
-        end)
-        b:SetPoint("TOPLEFT", 20, -72 - (i - 1) * 26)
-        b.prestigeId = e.id
-        W.prestige[i] = b
-    end
-
-    W.pAgain = Btn(prestigeFrame, "Sit down again", 200, 26, 12, function()
-        StartNewRunUI()
-    end)
-    W.pAgain:SetPoint("BOTTOM", 0, 18)
-
-    prestigeFrame:Hide()
-
-    -- the tour: shown once, then reachable from the ? button and /drb help
-    welcomeFrame = Panel(UIParent, 380, 340, GOLD)
-    welcomeFrame:SetPoint("CENTER")
-    welcomeFrame:SetFrameStrata("DIALOG")
-
-    local wtitle = FS(welcomeFrame, GOLD, 16)
-    wtitle:SetPoint("TOP", 0, -14)
-    wtitle:SetText("DEATHROLL BARON")
-
-    local wsub = FS(welcomeFrame, DIM, 11)
-    wsub:SetPoint("TOP", 0, -34)
-    wsub:SetText("the whole game, in five lines")
-
-    for i, text in ipairs(TOUR) do
-        local fs = FS(welcomeFrame, BONE, 11)
-        fs:SetPoint("TOPLEFT", 22, -54 - (i - 1) * 40)
-        fs:SetWidth(336)
-        fs:SetJustifyH("LEFT")
-        fs:SetText(text)
-    end
-
-    W.wGo = Btn(welcomeFrame, "Sit down", 180, 28, 12, function()
-        DB.seenWelcome = true
-        welcomeFrame:Hide()
-    end)
-    W.wGo:SetPoint("BOTTOM", 0, 16)
-
-    local wclose = CreateFrame("Button", nil, welcomeFrame, "UIPanelCloseButton")
-    wclose:SetPoint("TOPRIGHT", -3, -3)
-    wclose:SetScript("OnClick", function()
-        DB.seenWelcome = true
-        welcomeFrame:Hide()
-    end)
-
-    welcomeFrame:Hide()
-end
-
-ShowWelcome = function()
-    if not welcomeFrame then return end
-    welcomeFrame:Show()
-end
-
--- minimap button, hand-rolled: 32pt icon, drag it around the ring, angle saved
-local function PlaceMinimapButton()
-    if not minimapBtn then return end
-    local angle = math.rad(DB.minimapAngle or 220)
-    local radius = (Minimap:GetWidth() or 140) / 2 + 5
-    minimapBtn:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * radius, math.sin(angle) * radius)
-end
-
-CreateMinimap = function()
-    if minimapBtn or not Minimap then return end
-
-    local b = CreateFrame("Button", "DeathrollBaronMinimapButton", Minimap)
-    b:SetSize(32, 32)
-    b:SetFrameStrata("MEDIUM")
-    b:SetClampedToScreen(true)
-    b:RegisterForDrag("LeftButton")
-
-    local bg = b:CreateTexture(nil, "BACKGROUND")
-    bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
-    bg:SetSize(53, 53)
-    bg:SetPoint("CENTER")
-
-    local icon = b:CreateTexture(nil, "BACKGROUND", nil, 1)
-    icon:SetTexture(ICON)
-    icon:SetSize(20, 20)
-    icon:SetPoint("CENTER")
-
-    local border = b:CreateTexture(nil, "OVERLAY")
-    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-    border:SetSize(54, 54)
-    border:SetPoint("TOPLEFT")
-
-    b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
-
-    b:SetScript("OnClick", function() Toggle() end)
-
-    b:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine("Deathroll Baron", GOLD[1], GOLD[2], GOLD[3])
-        GameTooltip:AddLine("Click to open the table.", 1, 1, 1)
-        GameTooltip:AddLine("Drag around the minimap to move it.", DIM[1], DIM[2], DIM[3])
-        GameTooltip:Show()
-    end)
-    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-    -- rotate around the ring while dragged, and remember the angle
-    b:SetScript("OnDragStart", function(self)
-        self:SetScript("OnUpdate", function()
-            local mx, my = Minimap:GetCenter()
-            if not mx then return end
-            local scale = Minimap:GetEffectiveScale()
-            local cx, cy = GetCursorPosition()
-            cx, cy = cx / scale, cy / scale
-            DB.minimapAngle = math.deg(math.atan2(cy - my, cx - mx))
-            PlaceMinimapButton()
-        end)
-    end)
-    b:SetScript("OnDragStop", function(self)
-        self:SetScript("OnUpdate", nil)
-    end)
-
-    minimapBtn = b
-    PlaceMinimapButton()
-end
-
--- the croupier: one line of tension, chosen by how tight the range has become
-local function Tension(mx)
-    if mx <= 4 then return "  .  no room left" end
-    if mx <= 12 then return "  .  the table goes quiet" end
-    if mx <= 25 then return "  .  every number matters" end
-    if mx >= 60 then return "  .  plenty of room" end
-    return ""
-end
-
-function ns.Refresh()
-    if not frame or not DB then return end
-
-    if not ns.selectedRung then ns.selectedRung = DB.bestRung end
-    ns.selectedRung = min(DB.bestRung, max(1, ns.selectedRung))
-
-    local cfg = BuildConfig(ns.selectedRung)
-    local live = state and not state.finished
-
-    -- while a match is live the stake is already off the wallet, so the bet on
-    -- the table is state.wager and must not be re-clamped to the lower gold
-    if live then
-        ns.wager = state.wager
-    else
-        if not ns.wager or ns.wager < cfg.minWager then ns.wager = cfg.minWager end
-        if ns.wager > DB.gold then ns.wager = max(cfg.minWager, DB.gold) end
-    end
-
-    W.gold:SetText(Money(DB.gold))
-    local crowns = DB.crowns > 0 and ("   " .. DB.crowns .. " crowns") or ""
-    local streak = (DB.streak or 0) >= 3 and ("   " .. DB.streak .. " in a row") or ""
-    W.sub:SetText(("peak %s%s%s    run %d    %dW/%dL"):format(
-        Money(DB.peak), crowns, streak, DB.runs + 1, DB.wins, DB.losses))
-
-    W.npc:SetText(("%d/%d  %s"):format(ns.selectedRung, #NPCS, cfg.name))
-    W.npcInfo:SetText(("%s   .   level %s   .   purse %s"):format(
-        cfg.zone, cfg.level, Money(cfg.purse)))
-
-    for i = 1, 4 do
-        local a = cfg.affixes[i]
-        if a then
-            W.affix[i]:SetText((a.flaw and "flaw " or "EDGE ") .. a.name .. " - " .. a.text)
-            if a.flaw then
-                W.affix[i]:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
-            else
-                W.affix[i]:SetTextColor(RED[1], RED[2], RED[3])
-            end
-        else
-            W.affix[i]:SetText("")
-        end
-    end
-    if ns.selectedRung < 6 and W.affix[1]:GetText() == "" then
-        W.affix[1]:SetText("no tricks. base rng.")
-        W.affix[1]:SetTextColor(DIM[1], DIM[2], DIM[3])
-    end
-
-    -- the board: who rolled what, and whose turn it is right now
-    local yours = live and state.turn == "player"
-    local theirs = live and state.turn == "enemy"
-
-    if state and state.lastPlayer then
-        W.youNum:SetText(tostring(state.lastPlayer))
-    else
-        W.youNum:SetText(live and "?" or "--")
-    end
-    if state and state.lastEnemy then
-        W.themNum:SetText(tostring(state.lastEnemy))
-    else
-        W.themNum:SetText(live and "?" or "--")
-    end
-
-    W.youLabel:SetText("YOUR ROLL" .. (yours and "   <<" or ""))
-    W.themLabel:SetText("THEIR ROLL" .. (theirs and "   <<" or ""))
-    W.youEdge:SetAlpha(yours and 0.95 or 0.30)
-    W.themEdge:SetAlpha(theirs and 0.95 or 0.30)
-
-    if live then
-        local turn = yours and "your turn" or "their turn"
-        W.range:SetText(("%s  .  roll 1 - %d%s"):format(turn, state.max, Tension(state.max)))
-        if yours then
-            W.range:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-        else
-            W.range:SetTextColor(RED[1], RED[2], RED[3])
-        end
-    elseif state and state.finished then
-        if state.result == "win" then
-            W.range:SetText("you take the pot  .  " .. Signed(state.net or 0))
-            W.range:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
-        else
-            W.range:SetText("you pay up  .  " .. Signed(state.net or 0))
-            W.range:SetTextColor(0.85, 0.30, 0.26)
-        end
-    else
-        W.range:SetText(("opens at 1 - %d  .  %s to sit down"):format(cfg.ceiling, Money(cfg.minWager)))
-        W.range:SetTextColor(DIM[1], DIM[2], DIM[3])
-    end
-
-    -- the odds line: the actual chance you take this hand, given both sides'
-    -- luck and who is holding the dice right now
-    local oddsCfg = live and state.cfg or cfg
-    local chance = WinChance(oddsCfg, live)
-    local odds = floor(chance * 100 + 0.5)
-    W.luck:SetText(("ODDS %d%%   .   luck you %s / them %s   .   payout x%.2f"):format(
-        odds, Pct(oddsCfg.playerLuck), Pct(oddsCfg.enemyLuck), oddsCfg.mult))
-    if odds >= 55 then
-        W.luck:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
-    elseif odds <= 45 then
-        W.luck:SetTextColor(RED[1], RED[2], RED[3])
-    else
-        W.luck:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-    end
-
-    local entries = {}
-    if state then
-        for i = max(1, #state.log - 5), #state.log do
-            entries[#entries + 1] = state.log[i]
-        end
-    end
-    for i = 1, 6 do
-        local e = entries[i]
-        if e then
-            W.log[i]:SetText(e.text)
-            if e.kind == "you" then
-                W.log[i]:SetTextColor(GOLD[1] + 0.15, GOLD[2] + 0.15, GOLD[3] + 0.25)
-            elseif e.kind == "them" then
-                W.log[i]:SetTextColor(RED[1], RED[2], RED[3])
-            elseif e.kind == "win" then
-                W.log[i]:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
-            elseif e.kind == "lose" then
-                W.log[i]:SetTextColor(0.85, 0.30, 0.26)
-            elseif e.kind == "bank" then
-                W.log[i]:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-            else
-                W.log[i]:SetTextColor(BONE[1], BONE[2], BONE[3])
-            end
-        else
-            W.log[i]:SetText("")
-        end
-    end
-
-    W.wager:SetText(Money(ns.wager))
-    -- enabled during a match too: a manual match is advanced by clicking it
-    W.roll:SetEnabled(true)
-    if live and state.manual then
-        W.roll:SetText("ROLL ONE   (click)")
-        W.hint:SetText("manual: one roll per click, shift or not")
-    elseif live then
-        W.roll:SetText("ROLLING")
-        W.hint:SetText("shift-click to take over")
-    else
-        W.roll:SetText("ROLL   " .. Money(ns.wager))
-        W.hint:SetText("click to auto-roll  .  shift-click to roll it yourself")
-    end
-
-    -- no loan while a hand is live: the stake is already committed
-    W.loan:SetShown(not live and DB.gold < cfg.minWager and not DB.loanUsed and not DB.ended)
-    W.prev:SetEnabled(ns.selectedRung > 1)
-    W.next:SetEnabled(ns.selectedRung < DB.bestRung)
-
-    for i, p in ipairs(POWERS) do
-        local b = W.shop[i]
-        if b then
-            local r = DB.powers[p.id] or 0
-            if r >= p.max then
-                b:SetText(p.name .. "  maxed")
-                b:SetEnabled(false)
-            else
-                local cost = PowerCost(p)
-                b:SetText(("%s %d/%d   %s"):format(p.name, r, p.max, Money(cost)))
-                b:SetEnabled(DB.gold >= cost and not DB.ended)
-            end
-        end
-    end
-end
-
-ns.ShowPrestige = function(earned)
-    if not prestigeFrame then return end
-    W.pCrowns:SetText(("+%d Bone Crowns   (you hold %d)"):format(earned or DB.lastCrowns, DB.crowns))
-    for i, e in ipairs(PRESTIGE) do
-        local b = W.prestige[i]
-        if b then
-            local r = DB.prestige[e.id] or 0
-            if e.single and r >= 1 then
-                b:SetText(("%s  -  owned"):format(e.name))
-                b:SetEnabled(false)
-            else
-                local cost = PrestigeCost(e)
-                b:SetText(("%s  rank %d  -  %s  -  %d crowns"):format(e.name, r, e.per, cost))
-                b:SetEnabled(DB.crowns >= cost)
-            end
-        end
-    end
-    prestigeFrame:Show()
-end
-
-SelectRung = function(dir)
-    ns.selectedRung = min(DB.bestRung, max(1, (ns.selectedRung or 1) + dir))
-    ns.wager = BuildConfig(ns.selectedRung).minWager
-    ns.Refresh()
-end
-
-AdjustWager = function(dir)
-    local cfg = BuildConfig(ns.selectedRung)
-    local step = max(10, floor(cfg.minWager / 4))
-    ns.wager = max(cfg.minWager, min(max(DB.gold, cfg.minWager), ns.wager + dir * step))
-    ns.Refresh()
-end
-
--- One button, three jobs:
---   no match, no shift   -> start a match on the ticker
---   no match, shift      -> start a match in manual mode, and roll once
---   live match, any mode -> any click on a manual match steps; shift takes over an auto one
-DoRoll = function()
-    if DB.ended then
-        if ns.ShowPrestige then ns.ShowPrestige(DB.lastCrowns) end
-        return
-    end
-
-    if state and not state.finished then
-        if state.manual or IsShiftKeyDown() then
-            state.manual = true
-            StepMatch()
-            ns.Refresh()
-        end
-        return
-    end
-
-    local cfg = BuildConfig(ns.selectedRung)
-    if DB.gold < cfg.minWager then
-        if Borrow() then
-            ns.Refresh()
-        else
-            BustCheck()
-        end
-        return
-    end
-
-    local manual = IsShiftKeyDown() and true or false
-    if StartMatch(ns.selectedRung, ns.wager, manual) and manual then
-        StepMatch()
-    end
-    ns.Refresh()
-end
-
-StartNewRunUI = function()
-    prestigeFrame:Hide()
-    StartNewRun()
-    ns.Refresh()
-    print("|cffc9a227Deathroll Baron|r: a new table, a new set of cheats.")
-end
-
----------------------------------------------------------------------
--- events
----------------------------------------------------------------------
-local ev = CreateFrame("Frame")
-ev:RegisterEvent("ADDON_LOADED")
-ev:RegisterEvent("PLAYER_LOGOUT")
-ev:SetScript("OnEvent", function(_, event, arg1)
-    if event == "ADDON_LOADED" and arg1 == ADDON then
-        InitDB()
-        if DB.rolledN ~= #NPCS or next(DB.rolled) == nil then StartRun() end
-        ns.selectedRung = DB.bestRung
-        ns.wager = NPCS[DB.bestRung][6]
-        Build()
-        CreateMinimap()
-        -- A stake still on the table at login means the client was reloaded or
-        -- killed mid-match. The house keeps it and the hand counts as a loss,
-        -- so bailing out of a bad opening roll is never free.
-        if (DB.stake or 0) > 0 then
-            local abandoned = DB.stake
-            DB.stake = 0
-            DB.losses = DB.losses + 1
-            DB.forfeits = (DB.forfeits or 0) + 1
-            print(("|cffc9a227Deathroll Baron|r: you left %s on the table. The house keeps it."):format(Money(abandoned)))
-            BustCheck()
-        end
-        local net = ApplyOffline()
-        if net ~= 0 then
-            print(("|cffc9a227Deathroll Baron|r: the Runner brought back %s."):format(Money(net)))
-        end
-        ns.Refresh()
-        if DB.ended then ns.ShowPrestige(DB.lastCrowns) end
-        if not DB.seenWelcome then ShowWelcome() end
-    elseif event == "PLAYER_LOGOUT" then
-        if DB then
-            DB.lastSeen = time()
-            DB.schema = SCHEMA
-        end
-    end
-end)
-
--- one second clock; the runner only acts every RUNNER_EVERY seconds
-local clock = CreateFrame("Frame")
-clock:SetScript("OnUpdate", function(_, elapsed)
-    if not DB then return end
-    runnerAccum = runnerAccum + elapsed
-    if runnerAccum < 1 then return end
-    runnerAccum = 0
-    if DB.ended or (DB.powers.runner or 0) < 1 then
-        runnerClock = 0
-        return
-    end
-    runnerClock = runnerClock + 1
-    if runnerClock >= RUNNER_EVERY then
-        runnerClock = 0
-        RunnerStep()
-        if frame and frame:IsShown() then ns.Refresh() end
-    end
-end)
-
----------------------------------------------------------------------
--- entry points
----------------------------------------------------------------------
-Toggle = function()
-    if not frame then return end
-    if frame:IsShown() then
-        frame:Hide()
-    else
-        frame:Show()
-        if DB.ended and ns.ShowPrestige then ns.ShowPrestige(DB.lastCrowns) end
-        ns.Refresh()
-    end
-end
-
-function DeathrollBaron_CompartmentClick() Toggle() end
-function DeathrollBaron_CompartmentEnter() end
-function DeathrollBaron_CompartmentLeave() end
-
-SLASH_DEATHROLLBARON1 = "/drb"
-SLASH_DEATHROLLBARON2 = "/baron"
-SlashCmdList["DEATHROLLBARON"] = function(msg)
-    msg = (msg or ""):lower()
-    if msg == "help" then
-        ShowWelcome()
+local function Slash(msg)
+    if msg == "" or msg == nil then
+        if W then W:Show() end
         return
     end
     if msg == "odds" then
-        local rung = ns.selectedRung or 1
-        local cfg = BuildConfig(rung)
-        local A, B = OddsUpTo(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck)
-        print(("|cffc9a227odds|r rung %d (%s): ceiling %d, %.1f%% as the opener, %.1f%% as the second player"):format(
-            rung, cfg.name, cfg.ceiling, A[cfg.ceiling] * 100, B[cfg.ceiling] * 100))
+        local rung = DB.bestRung
+        local cfg = BuildConfig(rung, DB.rolledN or 0)
+        local A, B = OddsUpTo(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck, cfg.desperate and true or false)
+        Print(format("%s  opener %.0f%%  second %.0f%%", cfg.npc.short, A[cfg.ceiling] * 100, B[cfg.ceiling] * 100))
         return
     end
-    if msg == "reset" then
-        DB.powers = {}
-        DB.bestRung = 1
-        DB.gold = 500 + 250 * (DB.prestige.money or 0)
-        DB.peak = DB.gold
-        DB.debt, DB.loanUsed = 0, false
-        DB.ended, DB.lastCrowns = false, 0
-        DB.wins, DB.losses = 0, 0
-        DB.stake, DB.streak = 0, 0
-        state = nil
-        stateToken = stateToken + 1
-        runnerAccum, runnerClock = 0, 0
-        StartRun()
-        ns.selectedRung = 1
-        ns.wager = NPCS[1][6]
-        if prestigeFrame then prestigeFrame:Hide() end
-        ns.Refresh()
-        print("|cffc9a227Deathroll Baron|r: fresh table, fresh cheats.")
-        return
-    end
-    if msg == "sim" then
-        local rung = ns.selectedRung or 1
-        local wins, total, net = 0, 300, 0
-        local wager = NPCS[rung][6]
-        for _ = 1, total do
-            local res, amount = SimulateMatch(rung, wager)
-            if res == "win" then
-                wins = wins + 1
-                net = net + amount
-            else
-                net = net - amount
-            end
-        end
-        print(("|cffc9a227sim|r rung %d (%s): %d/%d wins = %.1f%%, net %s over %d matches"):format(
-            rung, NPCS[rung][1], wins, total, wins / total * 100, Money(net), total))
-        return
-    end
-    Toggle()
+    Print("commands: /drb, /drb odds, /drb help")
 end
+
+SlashCmdList["DEATHROLLBARON"] = Slash
+SLASH_DEATHROLLBARON1 = "/drb"
+SLASH_DEATHROLLBARON2 = "/baron"
+
+local e = CreateFrame("Frame")
+e:RegisterEvent("ADDON_LOADED")
+e:SetScript("OnEvent", function(_, _, addon)
+    if addon ~= ADDON then return end
+    InitDB()
+    Build()
+end)
