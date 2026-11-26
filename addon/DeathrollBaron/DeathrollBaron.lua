@@ -15,6 +15,13 @@ local RED   = { 0.80, 0.34, 0.30 }
 local ICON = "Interface\\Icons\\INV_Misc_Dice_02"
 
 local SCHEMA = 5
+
+-- Desperate is the one enemy modifier the odds solver has to know
+-- about by name: it lifts their luck only once the range is small, so
+-- no single enemy bias can describe the table. StepMatch and OddsUpTo
+-- both read these constants, so the two cannot disagree again.
+local DESPERATE_FROM = 20
+local DESPERATE_LUCK = 0.30
 local RUNNER_EVERY = 6
 
 -- board animation timings
@@ -455,7 +462,7 @@ local function StepMatch()
     local c = s.cfg
     local isPlayer = (s.turn == "player")
     local bias = isPlayer and c.playerLuck or c.enemyLuck
-    if c.desperate and not isPlayer and s.max <= 20 then bias = bias + 0.30 end
+    if c.desperate and not isPlayer and s.max <= DESPERATE_FROM then bias = bias + DESPERATE_LUCK end
 
     -- you want the low roll, they want the high one. That is the whole game.
     local roll = DrawRoll(s.max, bias, isPlayer)
@@ -552,9 +559,9 @@ end
 ---------------------------------------------------------------------
 local oddsCache = {}
 
-local function OddsUpTo(m, pLuck, eLuck)
+local function OddsUpTo(m, pLuck, eLuck, desperate)
     m = max(1, floor(m))
-    local key = floor(pLuck * 1000) .. ":" .. floor(eLuck * 1000)
+    local key = floor(pLuck * 1000) .. ":" .. floor(eLuck * 1000) .. ":" .. (desperate and 1 or 0)
     local entry = oddsCache[key]
     if not entry then
         entry = { A = { [1] = 0 }, B = { [1] = 1 }, n = 1 }
@@ -562,11 +569,15 @@ local function OddsUpTo(m, pLuck, eLuck)
     end
 
     local A, B = entry.A, entry.B
-    local qp, qe = min(1, math.abs(pLuck)), min(1, math.abs(eLuck))
+    local qp = min(1, math.abs(pLuck))
     local pWantLow = pLuck >= 0
-    local eWantLow = eLuck < 0
-
     for r = entry.n + 1, m do
+        -- Desperate only bites under 20, which is exactly where it matters,
+        -- so each row carries its own enemy bias.
+        local eb = eLuck
+        if desperate and r <= DESPERATE_FROM then eb = eb + DESPERATE_LUCK end
+        local qe = min(1, math.abs(eb))
+        local eWantLow = eb < 0
         local inv = 1 / r
         local inv2 = inv * inv
         local a, b = 0, 0
@@ -591,7 +602,7 @@ end
 
 -- the chance you take the hand from here, read off the table for the ceiling
 local function WinChance(cfg, live)
-    local A, B = OddsUpTo(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck)
+    local A, B = OddsUpTo(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck, cfg.desperate and true or false)
     local m = live and min(state.max, cfg.ceiling) or cfg.ceiling
     local youMove = live and (state.turn == "player") or (not live and not cfg.theyOpen)
     return youMove and A[m] or B[m]
@@ -1467,7 +1478,7 @@ SlashCmdList["DEATHROLLBARON"] = function(msg)
     if msg == "odds" then
         local rung = ns.selectedRung or 1
         local cfg = BuildConfig(rung)
-        local A, B = OddsUpTo(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck)
+        local A, B = OddsUpTo(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck, cfg.desperate and true or false)
         print(("|cffc9a227odds|r rung %d (%s): ceiling %d, %.1f%% as the opener, %.1f%% as the second player"):format(
             rung, cfg.name, cfg.ceiling, A[cfg.ceiling] * 100, B[cfg.ceiling] * 100))
         return
