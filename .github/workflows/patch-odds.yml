@@ -22,60 +22,124 @@ jobs:
           p = pathlib.Path("addon/DeathrollBaron/DeathrollBaron.lua")
           src = p.read_text(encoding="utf-8")
           orig = src
+          lines = src.split("\n")
 
-          if "DESPERATE_FROM" in src:
-              print("already patched")
+          def fail(msg):
+              print("FAIL " + msg)
+              sys.exit(1)
+
+          # 1. constants next to SCHEMA
+          for i, ln in enumerate(lines):
+              if ln.strip() == "local SCHEMA = 5":
+                  lines[i:i+1] = [
+                      "local SCHEMA = 5",
+                      "",
+                      "-- The Desperate affix is the one enemy modifier the odds solver has to",
+                      "-- know about by name: it lifts their luck only once the range is small,",
+                      "-- so the DP cannot fold it into a single enemy bias. StepMatch and",
+                      "-- OddsUpTo both read these constants, so they cannot disagree.",
+                      "local DESPERATE_FROM = 20",
+                      "local DESPERATE_LUCK = 0.30",
+                  ]
+                  break
+          else:
+              fail("SCHEMA line")
+
+          # 2. signature
+          hit = False
+          for i, ln in enumerate(lines):
+              if ln.startswith("local function OddsUpTo("):
+                  new = ln.replace("eLuck)", "eLuck, desperate)", 1)
+                  if new == ln:
+                      fail("OddsUpTo signature: " + ln)
+                  lines[i] = new
+                  fn = i
+                  hit = True
+                  break
+          if not hit:
+              fail("OddsUpTo function")
+
+          # 3. cache key
+          hit = False
+          for i in range(fn, min(fn + 40, len(lines))):
+              if lines[i].strip().startswith("local key = floor(pLuck * 1000)"):
+                  lines[i] = lines[i].rstrip() + ' .. ":" .. (desperate and 1 or 0)'
+                  hit = True
+                  break
+          if not hit:
+              fail("cache key")
+
+          # 4. find the row loop, then move qe/eWantLow inside it
+          loop = None
+          for i in range(fn, min(fn + 60, len(lines))):
+              if "for r = entry.n + 1, m do" in lines[i]:
+                  loop = i
+                  break
+          if loop is None:
+              print("---- OddsUpTo body ----")
+              print("\n".join(lines[fn:fn + 60]))
+              fail("row loop")
+
+          drop = re.compile(r"^\s*local (qe|eWantLow) = (min\(1, math\.abs\(eLuck\)\)|eLuck < 0)\s*$")
+          kept = []
+          removed = 0
+          for i, ln in enumerate(lines):
+              if fn < i < loop and drop.match(ln):
+                  removed += 1
+                  continue
+              kept.append(ln)
+          if removed != 2:
+              print("---- pre-loop ----")
+              print("\n".join(lines[fn:loop + 1]))
+              fail("expected to remove 2 lines, removed %d" % removed)
+          lines = kept
+          loop = next(i for i in range(fn, len(lines)) if "for r = entry.n + 1, m do" in lines[i])
+
+          indent = re.match(r"^\s*", lines[loop]).group(0) + "    "
+          lines[loop+1:loop+1] = [
+              indent + "-- Desperate only bites under %d, which is exactly where it" % 20,
+              indent + "-- matters, so each row carries its own enemy bias.",
+              indent + "local eb = eLuck",
+              indent + "if desperate and r <= DESPERATE_FROM then eb = eb + DESPERATE_LUCK end",
+              indent + "local qe = min(1, math.abs(eb))",
+              indent + "local eWantLow = eb < 0",
+          ]
+
+          src = "\n".join(lines)
+
+          # 5. call sites: append the flag, derived from the config passed in
+          def fix_call(m):
+              inner = m.group(1)
+              if "desperate" in inner:
+                  return m.group(0)
+              parts = inner.split(",")
+              if len(parts) != 3:
+                  print("uneven call: OddsUpTo(" + inner + ")")
+                  return m.group(0)
+              owner = parts[0].strip().rsplit(".", 1)[0]
+              return "OddsUpTo(" + inner + ", " + owner + ".desperate and true or false)"
+
+          calls = re.findall(r"OddsUpTo\(([^()]*)\)", src)
+          print("call sites before: " + repr(calls))
+          src = re.sub(r"OddsUpTo\(([^()]*)\)", fix_call, src)
+          print("call sites after:  " + repr(re.findall(r"OddsUpTo\(([^()]*)\)", src)))
+
+          # 6. StepMatch uses the constants
+          new_src, n = re.subn(
+              r"s\.max <= 20 then(\s*)bias = bias \+ 0\.30",
+              r"s.max <= DESPERATE_FROM then\1bias = bias + DESPERATE_LUCK",
+              src)
+          print("step match rewrites: %d" % n)
+          if n != 1:
+              for i, ln in enumerate(src.split("\n")):
+                  if "DESPERATE" in ln or "0.30" in ln or ".max <= 20" in ln:
+                      print("line %d: %s" % (i, ln))
+              fail("step match")
+          src = new_src
+
+          if src == orig:
+              print("no change")
               sys.exit(0)
-
-          def sub(pattern, repl, name, want=1, count=1):
-              global src
-              new, n = re.subn(pattern, repl, src, count=count)
-              if n != want:
-                  sys.exit("%s: expected %d match(es), got %d" % (name, want, n))
-              src = new
-
-          sub(r"(?m)^local SCHEMA = 5\s*$",
-              "local SCHEMA = 5\n\n"
-              "-- The Desperate affix is the one enemy modifier the odds solver has to know\n"
-              "-- about by name: it lifts their luck only once the range is small, so the\n"
-              "-- DP cannot fold it into a single enemy bias. StepMatch and OddsUpTo read\n"
-              "-- these two constants, so they can never disagree again.\n"
-              "local DESPERATE_FROM = 20\n"
-              "local DESPERATE_LUCK = 0.30",
-              "constants")
-
-          sub(r"local function OddsUpTo\(m, pLuck, eLuck\)",
-              "local function OddsUpTo(m, pLuck, eLuck, desperate)",
-              "signature")
-
-          sub(r'local key = floor\(pLuck \* 1000\) \.\. ":" \.\. floor\(eLuck \* 1000\)',
-              'local key = floor(pLuck * 1000) .. ":" .. floor(eLuck * 1000) .. ":" .. (desperate and 1 or 0)',
-              "cache key")
-
-          sub(r"(?m)^    local qe = min\(1, math\.abs\(eLuck\)\)\n"
-              r"    local eWantLow = eLuck < 0\n"
-              r"\n"
-              r"(    for r = entry\.n \+ 1, m do\n)",
-              "    for r = entry.n + 1, m do\n"
-              "        -- Desperate only bites under %d, which is exactly where it matters,\n"
-              "        -- so each row carries its own enemy bias instead of one for the table.\n"
-              "        local eb = eLuck\n"
-              "        if desperate and r <= DESPERATE_FROM then eb = eb + DESPERATE_LUCK end\n"
-              "        local qe = min(1, math.abs(eb))\n"
-              "        local eWantLow = eb < 0\n" % 20,
-              "per-row enemy bias")
-
-          sub(r"OddsUpTo\(cfg\.ceiling, cfg\.playerLuck, cfg\.enemyLuck\)",
-              "OddsUpTo(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck, cfg.desperate and true or false)",
-              "call sites", want=2, count=0)
-
-          sub(r"(?m)^(\s*)if c\.desperate and not isPlayer and s\.max <= 20 then\n"
-              r"\s*bias = bias \+ 0\.30\n"
-              r"(\s*)end",
-              r"\1if c.desperate and not isPlayer and s.max <= DESPERATE_FROM then\n"
-              r"\1    bias = bias + DESPERATE_LUCK\n"
-              r"\2end",
-              "step match")
 
           p.write_text(src, encoding="utf-8")
           print("patched, %d -> %d bytes" % (len(orig), len(src)))
