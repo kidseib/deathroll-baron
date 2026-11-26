@@ -1,0 +1,69 @@
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: Parse Lua
+    if: github.event_name == 'workflow_dispatch' || github.event.release.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua 5.1
+        run: sudo apt-get update -qq && sudo apt-get install -y lua5.1
+      - name: Syntax check every Lua file
+        run: |
+          set -euo pipefail
+          find addon -name '*.lua' -print0 | while IFS= read -r -d '' f; do
+            echo "checking $f"
+            luac5.1 -p "$f"
+          done
+          echo "all Lua files parse"
+
+  build:
+    name: Package zip
+    needs: check
+    if: github.event_name == 'workflow_dispatch' || github.event.release.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Zip the addon folder
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            VER="$(grep -m1 '^## Version:' addon/DeathrollBaron/DeathrollBaron.toc | sed 's/.*: *//')"
+          fi
+          echo "VER=$VER" >> $GITHUB_ENV
+          cd addon
+          zip -r "../DeathrollBaron-${VER}.zip" DeathrollBaron
+          cd ..
+          sha256sum "DeathrollBaron-${VER}.zip" > "DeathrollBaron-${VER}.zip.sha256"
+          ls -la DeathrollBaron-${VER}*
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: |
+            DeathrollBaron-*.zip
+            DeathrollBaron-*.zip.sha256
+          fail_on_unmatched_files: true
+
+      - name: Keep a copy for manual runs
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeathrollBaron-${{ env.VER }}
+          path: |
+            DeathrollBaron-*.zip
+            DeathrollBaron-*.zip.sha256

@@ -1,7 +1,7 @@
 # Deathroll Baron
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.0-c9a227?style=flat-square" alt="Version 0.1.0">
+  <img src="https://img.shields.io/badge/version-0.0.1--beta-c9a227?style=flat-square" alt="Version 0.0.1-beta">
   <img src="https://img.shields.io/badge/interface-16001-3f7d4e?style=flat-square" alt="Interface 16001">
   <img src="https://img.shields.io/badge/Lua-5.1-2c2d72?style=flat-square&logo=lua&logoColor=white" alt="Lua 5.1">
   <img src="https://img.shields.io/badge/dependencies-none-6b4f2a?style=flat-square" alt="No runtime dependencies">
@@ -14,9 +14,26 @@
   Native Lua 5.1 · no libraries · no real gold touched.
 </p>
 
-> **Status — 0.1.0, unrun.** The addon has been written but never executed: it was built where no
-> client or shell was reachable. Expect to fix a typo on first load. The in-game checklist lives in
-> [TODO.md](TODO.md); this README is honest about what is and is not verified.
+> **Status — 0.0.1-beta.** First beta. The Lua is syntax-checked by CI on every release, but the addon
+> has **never been played**: no window has been drawn, no match rolled, no economy felt. Expect
+> behaviour bugs. The in-game checklist is in [TODO.md](TODO.md).
+
+---
+
+## Download
+
+Grab `DeathrollBaron-0.0.1-beta.zip` from the [latest release](../../releases/latest), then verify it
+if you like — a `.sha256` file sits next to it:
+
+```powershell
+# Windows PowerShell
+Get-FileHash .\DeathrollBaron-0.0.1-beta.zip -Algorithm SHA256
+```
+
+```bash
+# macOS / Linux
+shasum -a 256 DeathrollBaron-0.0.1-beta.zip
+```
 
 ---
 
@@ -36,7 +53,7 @@ the table takes you and you convert a peak into **Bone Crowns** for the next run
 
 ## Install
 
-1. Copy the `DeathrollBaron` folder from [`addon/`](addon) into:
+1. Copy the `DeathrollBaron` folder from [`addon/`](addon) — or extract the release zip — into:
 
    ```
    World of Warcraft\_forever_\Interface\AddOns\DeathrollBaron\
@@ -118,33 +135,8 @@ brings.
 | 18-23 | 3 | + strong |
 | 24-30 | 4 | all |
 
-Rungs 1-5 cannot roll anything at all. That is the anti-snowball: there is no round-one way to
-get a cheater, and the early ladder is decided by honest dice.
-
-Twenty affixes, some the NPC's edge, some their flaw:
-
-| Affix | Tier | Effect |
-|---|---|---|
-| Nervous | weak | their luck -10% |
-| Quick Fingers | weak | their luck +10% |
-| Drunk | weak | their luck -20%, purse +15% |
-| Grit in the Eyes | weak | your luck -8% |
-| Loose Purse | weak | purse +25% |
-| Tight Purse | weak | purse -20% |
-| Cheater's Tell | weak | they open the roll |
-| Thick Skin | weak | your Insurance -1 charge |
-| Marked Deck | medium | their luck +25% |
-| Cold Read | medium | *you* must open the roll |
-| House Edge | medium | your payout -15% |
-| Escort | medium | purse +40% |
-| Silver Tongue | medium | 10% of your win is taxed |
-| Desperate | medium | below a 20 ceiling, their luck +30% |
-| Loaded Dice | strong | their luck +30% |
-| The Stare | strong | your luck -20% |
-| Debt Collector | strong | a loss costs 150% of the wager |
-| Null Ward | strong | your Insurance does nothing |
-| Double or Nothing | strong | win pays 2x, loss costs 2x |
-| Cheap Shot | strong | the match opens at half the ceiling |
+Rungs 1-5 cannot roll anything at all. That is the anti-snowball: there is no round-one way to get a
+cheater, and the early ladder is decided by honest dice.
 
 ---
 
@@ -161,10 +153,10 @@ local function rollSide(max, bias, takeHigh)
 end
 ```
 
-Your **Luck** rolls twice and keeps the higher. Their **Hex** rolls twice and keeps the lower. This
-is the design centre of the whole thing: keeping the higher number does not merely protect you from
-a 1, it lengthens the chain, which hands the opponent more turns to kill themselves. Upgrades
-compound instead of cancelling out, and the ticker stays tense at every tier.
+Your **Luck** rolls twice and keeps the higher. Their **Hex** rolls twice and keeps the lower. This is
+the design centre of the whole thing: keeping the higher number does not merely protect you from a 1,
+it lengthens the chain, which hands the opponent more turns to kill themselves. Upgrades compound
+instead of cancelling out, and the ticker stays tense at every tier.
 
 ---
 
@@ -191,8 +183,8 @@ of your simulated rate, capped at eight hours.
 ## Prestige
 
 Going broke pays `floor(sqrt(peak / 1000))` Bone Crowns. Four permanent upgrades: Old Money
-(+250 starting bankroll), Bloodline (+2% base Luck), Inside Man (-5% power-up cost) and Inherited
-Dice (keep one power-up between runs).
+(+250 starting bankroll), Bloodline (+2% base Luck), Inside Man (-5% power-up cost) and Inherited Dice
+(keep one power-up between runs).
 
 ---
 
@@ -213,8 +205,8 @@ Dice (keep one power-up between runs).
 - Written against **Forever** interface `16001` (client 1.60.1), Lua 5.1, no libraries.
 - Uses only frames, textures, font strings, SavedVariables and timers. It reads no combat data, no
   unit health, no combat log — the parts Forever's secret-value restrictions are aimed at.
-- The bankroll is fictional. Corporate `GetMoney()` is never called, no trade window is opened, and
-  no real item or coin is touched.
+- The bankroll is fictional. `GetMoney()` is never called, no trade window is opened, and no real item
+  or coin is touched.
 - Opponents are stored as names and zone strings. No unit tokens, no GUIDs, no NPC lookups.
 
 ---
@@ -224,10 +216,12 @@ Dice (keep one power-up between runs).
 ```
 addon/DeathrollBaron/DeathrollBaron.toc
 addon/DeathrollBaron/DeathrollBaron.lua   ~700 lines, one file
+.github/workflows/release.yml             zips the addon and attaches it to the release
 ```
 
-Everything — ladder, affixes, power-ups, engine, UI — lives in that single Lua file. Retuning the
-economy is a table edit in `NPCS`, `AFFIXES` or `POWERS`; nothing derives a hard-coded cost.
+Everything — ladder, affixes, power-ups, engine, UI — lives in that single Lua file, which CI parses
+with `luac5.1 -p` before it will package anything. Retuning the economy is a table edit in `NPCS`,
+`AFFIXES` or `POWERS`; nothing derives a hard-coded cost.
 
 See [TODO.md](TODO.md) for the in-game checklist that has to pass before this can be called working,
 and [AI-DISCLOSURE.md](AI-DISCLOSURE.md) for who wrote what.
