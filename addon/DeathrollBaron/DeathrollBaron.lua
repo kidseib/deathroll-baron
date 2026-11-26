@@ -161,7 +161,7 @@ local POWERS = {
       apply = function(c, r) if r > 0 then c.enemyLuck = c.enemyLuck + 0.08 * r end end },
     { id = "marks",  name = "Marked Cards",   base = 300,  max = 10,
       desc = "+12% payout per rank",
-      apply = function(c, r) if r > 0 then c.marksBought = r; c.mult = c.mult + 0.12 * r end end },
+      apply = function(c, r) if r > 0 then c.mult = c.mult + 0.12 * r end end },
     { id = "hands",  name = "Fast Hands",     base = 150,  max = 2,
       desc = "Roll ticker twice as fast",
       apply = function(c, r) c.speed = 0.85 / (1 + 0.6 * r) end },
@@ -738,10 +738,10 @@ local function Build()
     W.roll = Btn(frame, "ROLL", 368, 40, 16, function() DoRoll() end)
     W.roll:SetPoint("TOP", 0, -424)
 
-    -- the Shift hint lives under the button so the mode is never a secret
+    -- under the button, in its own band: above it would clip the quick buttons
     W.hint = FS(frame, DIM, 10)
-    W.hint:SetPoint("BOTTOM", W.roll, "TOP", 0, 2)
-    W.hint:SetText("shift-click to roll it yourself")
+    W.hint:SetPoint("TOP", W.roll, "BOTTOM", 0, -2)
+    W.hint:SetText("")
 
     for i, p in ipairs(POWERS) do
         local col = (i - 1) % 2
@@ -751,7 +751,7 @@ local function Build()
             BustCheck()
             ns.Refresh()
         end)
-        b:SetPoint("TOPLEFT", 14 + col * 192, -478 - row * 28)
+        b:SetPoint("TOPLEFT", 14 + col * 192, -484 - row * 28)
         b.powerId = p.id
         b:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -765,7 +765,7 @@ local function Build()
 
     frame:Hide()
 
-    -- prestige overlay: crowns are now spendable, in place
+    -- prestige overlay: crowns are spendable, in place
     prestigeFrame = Panel(UIParent, 360, 300, BLOOD)
     prestigeFrame:SetPoint("CENTER")
     prestigeFrame:SetFrameStrata("DIALOG")
@@ -950,7 +950,7 @@ end
 -- One button, three jobs:
 --   no match, no shift   -> start a match on the ticker
 --   no match, shift      -> start a match in manual mode, and roll once
---   live match, any mode -> shift-click steps one roll (and takes over from the ticker)
+--   live match, any mode -> any click on a manual match steps; shift takes over an auto one
 DoRoll = function()
     if DB.ended then
         if ns.ShowPrestige then ns.ShowPrestige(DB.lastCrowns) end
