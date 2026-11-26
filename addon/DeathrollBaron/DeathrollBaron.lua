@@ -25,8 +25,9 @@ local DESPERATE_LUCK = 0.30
 local RUNNER_EVERY = 6
 
 -- board animation timings
-local FLASH_TIME = 0.9
-local POP_TIME = 0.18
+local FLASH_TIME = 0.42
+local POP_TIME = 0.12
+local ROLL_SPEED = 0.26
 
 -- The opening edge: rung 1 is meant to be winnable, and the edge bleeds away.
 -- Rolling LOW is the strong play in a deathroll, so a player "luck" of 0.55
@@ -190,8 +191,8 @@ local POWERS = {
       desc = "+12% payout per rank",
       apply = function(c, r) if r > 0 then c.mult = c.mult + 0.12 * r end end },
     { id = "hands",  name = "Fast Hands",     base = 150,  max = 2,
-      desc = "Roll ticker twice as fast",
-      apply = function(c, r) c.speed = 0.85 / (1 + 0.6 * r) end },
+      desc = "Roll ticker far faster",
+      apply = function(c, r) c.speed = ROLL_SPEED / (1 + 0.6 * r) end },
     { id = "trick",  name = "Cheap Trick",    base = 800,  max = 1,
       desc = "The enemy opens every match",
       apply = function(c, r) if r > 0 then c.theyOpen = true end end },
@@ -300,7 +301,7 @@ local function BuildConfig(rung)
         playerLuck = 0, enemyLuck = 0, mult = 1.0, lossMult = 1.0,
         lossFrac = 1.0, winTax = 0, theyOpen = false, insurance = 0,
         insuranceBlocked = false, doubleOrNothing = false,
-        desperate = false, forcePlayerOpen = false, speed = 0.85,
+        desperate = false, forcePlayerOpen = false, speed = ROLL_SPEED,
         affixes = {},
     }
 
@@ -523,7 +524,7 @@ local function StartMatch(rung, wager, manual)
         ns.Refresh()
     end
 
-    C_Timer.After(0.30, tick)
+    C_Timer.After(0.08, tick)
     return true
 end
 
@@ -774,7 +775,7 @@ local TOUR = {
     "A deathroll opens at 1-100. You trade rolls inside a shrinking range, and whoever rolls a 1 pays the pot.",
     "You want the LOW roll: a small number leaves them almost nothing to roll in. High rolls are how you lose.",
     "Set the stake, then press ROLL. The stake leaves your purse the moment the hand starts.",
-    "Shift-click ROLL to step one roll at a time. The ODD% line under the board is your real chance.",
+    "Shift-click ROLL to step one roll at a time. The odds bar under the board is your real chance.",
     "Between hands, buy power-ups. Go broke and the table takes you: Bone Crowns buy permanent upgrades.",
 }
 
@@ -1522,3 +1523,276 @@ SlashCmdList["DEATHROLLBARON"] = function(msg)
     end
     Toggle()
 end
+
+---------------------------------------------------------------------
+-- juice: quick-fire layer
+-- Additive: nothing above this is rewritten, so the odds solver and
+-- the match engine behave exactly as before. Everything lives on one
+-- table so the file's chunk-local budget is untouched.
+---------------------------------------------------------------------
+local J = {}
+
+J.COIN = "Interface\\Icons\\INV_Misc_Coin_01"
+J.COIN2 = "Interface\\Icons\\INV_Misc_Coin_02"
+J.WHITE = "Interface\\Buttons\\WHITE8X8"
+J.ready = false
+
+function J.Sound(name)
+    if not SOUNDKIT then return end
+    local id = SOUNDKIT[name]
+    if id then pcall(PlaySound, id) end
+end
+
+function J.Center(panel)
+    if not panel or not frame then return 0, 0 end
+    local px, py = panel:GetCenter()
+    local fx, fy = frame:GetCenter()
+    if not px or not py or not fx or not fy then return 0, 0 end
+    return px - fx, py - fy
+end
+
+function J.Init()
+    if J.ready or not frame or not W.youNum or not W.gold then return end
+    J.ready = true
+    J.scaleYou, J.scaleThem, J.goldScale, J.glowA = 1, 1, 1, 0
+    J.parts, J.texts = {}, {}
+
+    -- the odds bar: the one number the whole game hangs on
+    local bar = CreateFrame("Frame", nil, frame)
+    bar:SetSize(384, 18)
+    bar:SetPoint("TOP", frame, "TOP", 0, -264)
+    local bg = bar:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.10, 0.09, 0.07, 0.96)
+    bar.fill = bar:CreateTexture(nil, "BACKGROUND", nil, 1)
+    bar.fill:SetPoint("TOPLEFT", 1, -1)
+    bar.fill:SetPoint("BOTTOMLEFT", 1, 1)
+    bar.fill:SetWidth(1)
+    bar.fill:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
+    local mid = bar:CreateTexture(nil, "BACKGROUND", nil, 2)
+    mid:SetSize(1, 18)
+    mid:SetPoint("CENTER")
+    mid:SetColorTexture(1, 1, 1, 0.16)
+    bar.text = FS(bar, GOLD, 12)
+    bar.text:SetPoint("CENTER")
+    J.bar = bar
+
+    if W.luck then W.luck:Hide() end
+
+    local glow = frame:CreateTexture(nil, "BACKGROUND", nil, 2)
+    glow:SetAllPoints()
+    glow:SetColorTexture(1, 0.84, 0.28, 1)
+    glow:SetAlpha(0)
+    J.glow = glow
+
+    for i = 1, 44 do
+        local t = frame:CreateTexture(nil, "OVERLAY", nil, 3)
+        t:SetTexture(J.WHITE)
+        t:SetSize(10, 10)
+        t:Hide()
+        J.parts[i] = { tex = t, life = 0 }
+    end
+
+    for i = 1, 6 do
+        local fs = FS(frame, GOLD, 20)
+        fs:SetPoint("CENTER", frame, "CENTER", 0, 0)
+        fs:SetAlpha(0)
+        fs:SetText("")
+        J.texts[i] = { fs = fs, life = 0, x = 0, y = 0, vy = 0 }
+    end
+end
+
+function J.Take()
+    for i = 1, #J.parts do
+        if J.parts[i].life <= 0 then return J.parts[i] end
+    end
+    return nil
+end
+
+function J.Burst(x, y, n, big)
+    if not J.ready then return end
+    for i = 1, n do
+        local p = J.Take()
+        if p then
+            local ang = math.random() * 6.28318
+            local spd = 90 + math.random() * (big and 240 or 130)
+            p.x, p.y = x, y
+            p.vx = math.cos(ang) * spd
+            p.vy = math.sin(ang) * spd * 0.75 + (big and 190 or 110)
+            p.life = 0.5 + math.random() * 0.45
+            p.max = p.life
+            if math.random() < 0.45 then
+                p.tex:SetTexture(math.random() < 0.5 and J.COIN or J.COIN2)
+                p.tex:SetSize(13, 13)
+                p.tex:SetVertexColor(1, 1, 1)
+            else
+                p.tex:SetTexture(J.WHITE)
+                p.tex:SetSize(3 + math.random() * 4, 3 + math.random() * 4)
+                p.tex:SetVertexColor(1, 0.80 + math.random() * 0.2, 0.25 + math.random() * 0.45)
+            end
+            p.tex:SetAlpha(1)
+            p.tex:SetScale(1)
+            p.tex:SetPoint("CENTER", frame, "CENTER", p.x, p.y)
+            p.tex:Show()
+        end
+    end
+end
+
+function J.Float(x, y, str, size, color, life)
+    if not J.ready then return end
+    for i = 1, #J.texts do
+        local t = J.texts[i]
+        if t.life <= 0 then
+            local path, _, flags = t.fs:GetFont()
+            if path then t.fs:SetFont(path, size or 18, flags) end
+            t.fs:SetText(str)
+            t.fs:SetTextColor(color[1], color[2], color[3])
+            t.fs:SetPoint("CENTER", frame, "CENTER", x, y)
+            t.fs:SetAlpha(1)
+            t.x, t.y = x, y
+            t.vy = 48
+            t.life = life or 1.1
+            t.max = t.life
+            return
+        end
+    end
+end
+
+function J.Roll(side)
+    local panel = W.youPanel
+    if side ~= "you" then panel = W.themPanel end
+    if side == "you" then J.scaleYou = 1.5 else J.scaleThem = 1.5 end
+    local x, y = J.Center(panel)
+    J.Burst(x, y, 3, false)
+end
+
+function J.Result(s)
+    if s.result == "win" then
+        local x, y = J.Center(W.youPanel)
+        J.Burst(x, y, 20, true)
+        J.Burst(0, 30, 12, true)
+        J.Float(0, 100, "CHA-CHING!", 26, GOLD, 1.3)
+        J.Float(0, 66, "you take " .. Money(s.payout or 0), 16, GREEN, 1.3)
+        J.glowA = 0.26
+        J.goldScale = 1.35
+        if J.glow then J.glow:SetColorTexture(1, 0.84, 0.28, 1) end
+        J.Sound("LOOT_ROLL_WON")
+    else
+        local x, y = J.Center(W.themPanel)
+        J.Burst(x, y, 8, false)
+        J.Float(0, 84, "BUSTED   " .. Signed(s.net or 0), 20, RED, 1.1)
+        J.glowA = 0.16
+        if J.glow then J.glow:SetColorTexture(0.78, 0.16, 0.12, 1) end
+        J.Sound("LOOT_ROLL_LOST")
+    end
+end
+
+function J.Odds()
+    if not J.ready or not DB then return end
+    local s = state
+    local live = (s and not s.finished) and true or false
+    local cfg = live and s.cfg or BuildConfig(ns.selectedRung or 1)
+    local chance = WinChance(cfg, live)
+    if chance < 0 then chance = 0 end
+    if chance > 1 then chance = 1 end
+    local pct = floor(chance * 100 + 0.5)
+    local wager = live and s.wager or (ns.wager or cfg.minWager)
+    local gross = floor(wager * cfg.mult)
+    local payout = max(0, min(gross - floor(gross * cfg.winTax), cfg.purse))
+    local risk = floor(wager * cfg.lossMult * cfg.lossFrac)
+    local col = GOLD
+    if pct >= 56 then col = GREEN elseif pct <= 44 then col = RED end
+    J.bar.fill:SetWidth(max(1, floor(382 * chance)))
+    J.bar.fill:SetColorTexture(col[1], col[2], col[3], 0.55 + 0.25 * (0.5 + 0.5 * math.sin(GetTime() * 3)))
+    J.bar.text:SetText(("%d%% YOU   .   pays %s   .   risk %s"):format(pct, Money(payout), Money(risk)))
+    J.bar.text:SetTextColor(col[1], col[2], col[3])
+end
+
+function J.Step(el)
+    if not J.ready then return end
+    if el > 0.1 then el = 0.1 end
+
+    local s = state
+    if s ~= J.seenState then
+        J.seenState = s
+        J.seenP, J.seenE, J.seenResult = nil, nil, nil
+        J.scaleYou, J.scaleThem = 1, 1
+    end
+
+    if s and not s.finished then
+        if s.lastPlayer ~= J.seenP then
+            J.seenP = s.lastPlayer
+            if s.lastPlayer then J.Roll("you") end
+        end
+        if s.lastEnemy ~= J.seenE then
+            J.seenE = s.lastEnemy
+            if s.lastEnemy then J.Roll("them") end
+        end
+        J.seenResult = nil
+    elseif s and s.finished and not J.seenResult then
+        J.seenResult = s.result or "win"
+        J.Result(s)
+    end
+
+    for i = 1, #J.parts do
+        local p = J.parts[i]
+        if p.life > 0 then
+            p.life = p.life - el
+            if p.life <= 0 then
+                p.tex:Hide()
+            else
+                p.vy = p.vy - 620 * el
+                p.x = p.x + p.vx * el
+                p.y = p.y + p.vy * el
+                local k = p.life / p.max
+                p.tex:ClearAllPoints()
+                p.tex:SetPoint("CENTER", frame, "CENTER", p.x, p.y)
+                p.tex:SetAlpha(min(1, k * 1.6))
+                p.tex:SetScale(0.55 + 0.75 * k)
+            end
+        end
+    end
+
+    for i = 1, #J.texts do
+        local t = J.texts[i]
+        if t.life > 0 then
+            t.life = t.life - el
+            if t.life <= 0 then
+                t.fs:SetAlpha(0)
+            else
+                t.y = t.y + t.vy * el
+                t.vy = t.vy * (1 - el * 1.4)
+                t.fs:SetAlpha(min(1, t.life / 0.45))
+                t.fs:ClearAllPoints()
+                t.fs:SetPoint("CENTER", frame, "CENTER", t.x, t.y)
+            end
+        end
+    end
+
+    J.scaleYou = 1 + (J.scaleYou - 1) * max(0, 1 - el * 10)
+    J.scaleThem = 1 + (J.scaleThem - 1) * max(0, 1 - el * 10)
+    J.goldScale = 1 + (J.goldScale - 1) * max(0, 1 - el * 8)
+    if W.youNum then W.youNum:SetScale(J.scaleYou) end
+    if W.themNum then W.themNum:SetScale(J.scaleThem) end
+    if W.gold then W.gold:SetScale(J.goldScale) end
+
+    if J.glowA > 0 then
+        J.glowA = max(0, J.glowA - el * 1.2)
+        if J.glow then J.glow:SetAlpha(J.glowA) end
+    end
+end
+
+local jbase = ns.Refresh
+ns.Refresh = function(...)
+    if jbase then jbase(...) end
+    J.Odds()
+end
+
+local jdriver = CreateFrame("Frame")
+jdriver:SetScript("OnUpdate", function(_, el)
+    if not J.ready then
+        if frame and W.youNum and W.gold then J.Init() end
+        return
+    end
+    J.Step(el)
+end)
