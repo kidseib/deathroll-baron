@@ -139,8 +139,9 @@ for dead in ["ns.autoKey", "ns.AutoDeal", "ns.autoDriver"]:
         print("DEAD CODE SURVIVED: %s" % dead)
         sys.exit(1)
 
-if src.count("ns.AutoTick(el)") != 1:
-    print("driver call count is %d" % src.count("ns.AutoTick(el)"))
+calls = re.findall(r"(?m)^[ \t]*ns\.AutoTick\(el\)[ \t]*$", src)
+if len(calls) != 1:
+    print("driver call lines: %d" % len(calls))
     sys.exit(1)
 
 write(LUA, src)
