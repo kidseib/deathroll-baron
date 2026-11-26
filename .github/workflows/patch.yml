@@ -1,0 +1,22 @@
+name: patch
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: lua
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lua5.1
+      - name: apply
+        run: |
+          python3 tools/patch_010b.py
+          luac5.1 -p addon/DeathrollBaron/DeathrollBaron.lua && echo "PARSE OK"
+          git config user.name bot
+          git config user.email bot@users.noreply.github.com
+          git commit -am "0.0.10: hold the verdict through the beat"
+          git push
+          git tag -f v0.0.10 HEAD
+          git push -f origin refs/tags/v0.0.10
+          git --no-pager diff --stat HEAD~1
