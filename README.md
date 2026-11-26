@@ -1,7 +1,7 @@
 # Deathroll Baron
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.0.1--beta-c9a227?style=flat-square" alt="Version 0.0.1-beta">
+  <img src="https://img.shields.io/badge/version-0.0.2-c9a227?style=flat-square" alt="Version 0.0.2">
   <img src="https://img.shields.io/badge/interface-16001-3f7d4e?style=flat-square" alt="Interface 16001">
   <img src="https://img.shields.io/badge/Lua-5.1-2c2d72?style=flat-square&logo=lua&logoColor=white" alt="Lua 5.1">
   <img src="https://img.shields.io/badge/dependencies-none-6b4f2a?style=flat-square" alt="No runtime dependencies">
@@ -14,25 +14,26 @@
   Native Lua 5.1 · no libraries · no real gold touched.
 </p>
 
-> **Status — 0.0.1-beta.** First beta. The Lua is syntax-checked by CI on every release, but the addon
-> has **never been played**: no window has been drawn, no match rolled, no economy felt. Expect
-> behaviour bugs. The in-game checklist is in [TODO.md](TODO.md).
+> **Status — 0.0.2.** The Lua is syntax-checked by CI on every release and 0.0.2 fixes a round of
+> runtime faults found by review — double-awarded crowns, unspendable prestige, a Runner running six
+> times too fast, a low-bankroll dead end, a load-time crash from stale saves, and two layout
+> overlaps. It has still **never been played in game**. Checklist: [TODO.md](TODO.md).
 
 ---
 
 ## Download
 
-Grab `DeathrollBaron-0.0.1-beta.zip` from the [latest release](../../releases/latest), then verify it
-if you like — a `.sha256` file sits next to it:
+Grab the newest `DeathrollBaron-*.zip` from the **[latest release](../../releases/latest)**. A
+matching `.sha256` file sits beside it:
 
 ```powershell
 # Windows PowerShell
-Get-FileHash .\DeathrollBaron-0.0.1-beta.zip -Algorithm SHA256
+Get-FileHash .\DeathrollBaron-0.0.2.zip -Algorithm SHA256
 ```
 
 ```bash
 # macOS / Linux
-shasum -a 256 DeathrollBaron-0.0.1-beta.zip
+shasum -a 256 DeathrollBaron-0.0.2.zip
 ```
 
 ---
@@ -53,10 +54,11 @@ the table takes you and you convert a peak into **Bone Crowns** for the next run
 
 ## Install
 
-1. Copy the `DeathrollBaron` folder from [`addon/`](addon) — or extract the release zip — into:
+1. Extract the release zip (or copy `addon/DeathrollBaron`) so the layout is:
 
    ```
-   World of Warcraft\_forever_\Interface\AddOns\DeathrollBaron\
+   World of Warcraft\_forever_\Interface\AddOns\DeathrollBaron\DeathrollBaron.toc
+   World of Warcraft\_forever_\Interface\AddOns\DeathrollBaron\DeathrollBaron.lua
    ```
 
 2. Restart the client (a brand-new addon needs a full restart; after that `/reload` is enough).
@@ -78,8 +80,8 @@ The addon declares `## Interface: 16001`, the Forever client value (1.60.1). If 
 4. **Roll.** One click resolves the whole deathroll with a shrinking ticker. Hold **Shift** on ROLL
    to step it one roll at a time instead.
 5. **Spend.** Power-ups improve your luck, tax their luck, raise the multiplier or blunt your losses.
-6. **Go broke.** Peak bankroll converts into Bone Crowns, and you start a new run with permanent
-   advantages.
+6. **Go broke.** Peak bankroll converts into Bone Crowns, which buy permanent advantages for the
+   next run.
 
 ---
 
@@ -175,16 +177,16 @@ Cost for rank `n` is `base × 1.75^(n-1)`, rounded to 5.
 | Blood Pact | +1 Insurance charge | 3 | 1,200 |
 | The Runner | auto-play + offline income | 1 | 2,500 |
 
-**The Runner** plays a match every six seconds while you're not looking, and pays out offline at 60%
-of your simulated rate, capped at eight hours.
+**The Runner** plays one match every six seconds and pays offline at 60% of your simulated rate,
+capped at eight hours.
 
 ---
 
 ## Prestige
 
-Going broke pays `floor(sqrt(peak / 1000))` Bone Crowns. Four permanent upgrades: Old Money
-(+250 starting bankroll), Bloodline (+2% base Luck), Inside Man (-5% power-up cost) and Inherited Dice
-(keep one power-up between runs).
+Going broke pays `floor(sqrt(peak / 1000))` Bone Crowns. Four permanent upgrades, bought in the
+game-over overlay: Old Money (+250 starting bankroll), Bloodline (+2% base Luck), Inside Man (-5%
+power-up cost) and Inherited Dice (keep one power-up between runs).
 
 ---
 
@@ -192,7 +194,7 @@ Going broke pays `floor(sqrt(peak / 1000))` Bone Crowns. Four permanent upgrades
 
 ```
 /drb, /baron        open or close the table
-/drb sim            300 silent matches at the selected rung, prints the win rate
+/drb sim            300 silent matches at the selected rung: win rate and net gold
 /drb reset          wipe progress and deal a fresh set of cheats
 ```
 
@@ -204,7 +206,7 @@ Going broke pays `floor(sqrt(peak / 1000))` Bone Crowns. Four permanent upgrades
 
 - Written against **Forever** interface `16001` (client 1.60.1), Lua 5.1, no libraries.
 - Uses only frames, textures, font strings, SavedVariables and timers. It reads no combat data, no
-  unit health, no combat log — the parts Forever's secret-value restrictions are aimed at.
+  unit health, no combat log.
 - The bankroll is fictional. `GetMoney()` is never called, no trade window is opened, and no real item
   or coin is touched.
 - Opponents are stored as names and zone strings. No unit tokens, no GUIDs, no NPC lookups.
@@ -215,16 +217,15 @@ Going broke pays `floor(sqrt(peak / 1000))` Bone Crowns. Four permanent upgrades
 
 ```
 addon/DeathrollBaron/DeathrollBaron.toc
-addon/DeathrollBaron/DeathrollBaron.lua   ~700 lines, one file
-.github/workflows/release.yml             zips the addon and attaches it to the release
+addon/DeathrollBaron/DeathrollBaron.lua   one file, all of it
+.github/workflows/release.yml             parses the Lua, zips the addon, attaches it to the release
 ```
 
-Everything — ladder, affixes, power-ups, engine, UI — lives in that single Lua file, which CI parses
-with `luac5.1 -p` before it will package anything. Retuning the economy is a table edit in `NPCS`,
-`AFFIXES` or `POWERS`; nothing derives a hard-coded cost.
+CI runs `luac5.1 -p` on every Lua file before it will package anything. Retuning the economy is a
+table edit in `NPCS`, `AFFIXES` or `POWERS`; nothing derives a hard-coded cost.
 
-See [TODO.md](TODO.md) for the in-game checklist that has to pass before this can be called working,
-and [AI-DISCLOSURE.md](AI-DISCLOSURE.md) for who wrote what.
+See [TODO.md](TODO.md) for the in-game checklist, and [AI-DISCLOSURE.md](AI-DISCLOSURE.md) for who
+wrote what.
 
 ---
 
