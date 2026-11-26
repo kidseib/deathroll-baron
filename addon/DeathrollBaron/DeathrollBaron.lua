@@ -320,7 +320,7 @@ local function BuildConfig(rung)
         c.lossMult = c.lossMult * 2
     end
 
-    -- negative luck is meaningful: it means the *bad* of two rolls
+    -- negative luck is meaningful: it means you get the *bad* of two rolls
     c.playerLuck = min(0.95, max(-0.95, c.playerLuck))
     c.enemyLuck = min(0.95, max(-0.95, c.enemyLuck))
     c.purse = max(c.minWager, floor(c.purse))
@@ -547,22 +547,26 @@ end
 ---------------------------------------------------------------------
 -- exact win odds
 -- A[m]: you to move at range m.  B[m]: them to move at range m.
--- Both are solved bottom-up once per (ceiling, luck) pair and cached.
+-- Rows only depend on smaller ranges, so one table grown to the largest
+-- ceiling in use answers every question after it.
 ---------------------------------------------------------------------
 local oddsCache = {}
 
-local function OddsTables(m, pLuck, eLuck)
+local function OddsUpTo(m, pLuck, eLuck)
     m = max(1, floor(m))
-    local key = m .. ":" .. floor(pLuck * 1000) .. ":" .. floor(eLuck * 1000)
-    local hit = oddsCache[key]
-    if hit then return hit.A, hit.B end
+    local key = floor(pLuck * 1000) .. ":" .. floor(eLuck * 1000)
+    local entry = oddsCache[key]
+    if not entry then
+        entry = { A = { [1] = 0 }, B = { [1] = 1 }, n = 1 }
+        oddsCache[key] = entry
+    end
 
-    local A, B = { [1] = 0 }, { [1] = 1 }
+    local A, B = entry.A, entry.B
     local qp, qe = min(1, math.abs(pLuck)), min(1, math.abs(eLuck))
     local pWantLow = pLuck >= 0
     local eWantLow = eLuck < 0
 
-    for r = 2, m do
+    for r = entry.n + 1, m do
         local inv = 1 / r
         local inv2 = inv * inv
         local a, b = 0, 0
@@ -581,15 +585,15 @@ local function OddsTables(m, pLuck, eLuck)
         A[r], B[r] = a, b
     end
 
-    oddsCache[key] = { A = A, B = B }
+    if m > entry.n then entry.n = m end
     return A, B
 end
 
--- the chance you take the hand from here
+-- the chance you take the hand from here, read off the table for the ceiling
 local function WinChance(cfg, live)
-    local m = live and state.max or cfg.ceiling
+    local A, B = OddsUpTo(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck)
+    local m = live and min(state.max, cfg.ceiling) or cfg.ceiling
     local youMove = live and (state.turn == "player") or (not live and not cfg.theyOpen)
-    local A, B = OddsTables(m, cfg.playerLuck, cfg.enemyLuck)
     return youMove and A[m] or B[m]
 end
 
@@ -1463,8 +1467,7 @@ SlashCmdList["DEATHROLLBARON"] = function(msg)
     if msg == "odds" then
         local rung = ns.selectedRung or 1
         local cfg = BuildConfig(rung)
-        local A, B = OddsTables(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck)
-        local opens = not cfg.theyOpen
+        local A, B = OddsUpTo(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck)
         print(("|cffc9a227odds|r rung %d (%s): ceiling %d, %.1f%% as the opener, %.1f%% as the second player"):format(
             rung, cfg.name, cfg.ceiling, A[cfg.ceiling] * 100, B[cfg.ceiling] * 100))
         return
