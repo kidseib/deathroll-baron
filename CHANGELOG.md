@@ -10,6 +10,31 @@ versioning is [SemVer](https://semver.org/).
 - Wager slider to replace the stepper (needs a thumb texture).
 - Challenge your current target; addon-vs-addon multiplayer.
 
+## [0.0.5] — 2026-11-26
+
+Two things a first-time player never had: a way in, and a door.
+
+### Added
+
+- **A minimap button.** 32pt, hand-rolled — this addon still ships no libraries. Left-click
+  toggles the window; drag it and it rotates around the ring, with the angle saved in
+  `DB.minimapAngle` so it stays where you put it. Tooltip says both of those things.
+- **A first-run tour.** A small panel on first login: five lines covering what a deathroll is,
+  picking a target with `<` `>`, that the stake leaves your purse when the hand starts, that
+  shift-click steps a single roll, and that a bust pays Bone Crowns. It appears once, behind
+  `DB.seenWelcome`; the `?` button in the title bar and `/drb help` reopen it on demand.
+- `DB.minimapAngle` and `DB.seenWelcome` join the schema (now 4), with the angle clamped on load
+  so a corrupt save cannot place the button off in the weeds.
+
+### Fixed
+
+- **Cross-section calls are forward-declared now.** The minimap button, the tour and the
+  `ADDON_LOADED` handler all run code that lives further down the chunk than the functions it calls
+  — `Toggle` most of all. Without a declaration above the UI, each of those would have compiled to a
+  runtime global lookup and returned `nil` the moment someone clicked the icon. `Toggle`,
+  `ShowWelcome` and `CreateMinimap` are all named in the forward-declaration block with
+  `AdjustWager`, `SelectRung` and `DoRoll`.
+
 ## [0.0.4] — 2026-11-26
 
 The wager used to move only in `FinishMatch`, which meant a `/reload` during a bad opening
