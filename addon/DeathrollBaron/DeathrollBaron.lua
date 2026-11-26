@@ -12,7 +12,7 @@ local BLOOD = { 0.72, 0.20, 0.18 }
 local GREEN = { 0.55, 0.78, 0.42 }
 local RED   = { 0.80, 0.34, 0.30 }
 
-local SCHEMA = 2
+local SCHEMA = 3
 local RUNNER_EVERY = 6
 
 ---------------------------------------------------------------------
@@ -33,6 +33,12 @@ local function Money(c)
     if g > 0 then return Comma(g) .. "g " .. s .. "s" end
     if s > 0 then return s .. "s " .. cu .. "c" end
     return cu .. "c"
+end
+
+local function Signed(c)
+    c = floor((c or 0) + 0.5)
+    if c < 0 then return "-" .. Money(-c) end
+    return "+" .. Money(c)
 end
 
 local function Pct(v)
@@ -193,7 +199,7 @@ local DB
 local DEFAULTS = {
     gold = 500, peak = 500, runs = 0, crowns = 0, bestRung = 1,
     wins = 0, losses = 0, debt = 0, loanUsed = false, lastSeen = 0,
-    ended = false, lastCrowns = 0,
+    ended = false, lastCrowns = 0, stake = 0, forfeits = 0,
 }
 
 local function InitDB()
@@ -211,6 +217,7 @@ local function InitDB()
     DB.gold = max(0, floor(tonumber(DB.gold) or 0))
     DB.peak = max(DB.gold, floor(tonumber(DB.peak) or 0))
     DB.crowns = max(0, floor(tonumber(DB.crowns) or 0))
+    DB.stake = max(0, floor(tonumber(DB.stake) or 0))
     DB.schema = SCHEMA
 end
 
@@ -368,12 +375,16 @@ local function DrawRoll(mx, bias, high)
     return a
 end
 
+-- The stake left the wallet in StartMatch, so settlement works from the
+-- escrow: a win adds the pot, a loss returns whatever fraction of the stake
+-- you keep. Net is what the player actually gained or lost.
 local function FinishMatch(result)
     local s = state
     if not s or s.finished then return end
     s.finished = true
     s.result = result
     local c = s.cfg
+    DB.stake = 0
 
     if result == "win" then
         local gross = floor(s.wager * c.mult)
@@ -381,7 +392,8 @@ local function FinishMatch(result)
         DB.gold = DB.gold + payout
         DB.wins = DB.wins + 1
         s.payout = payout
-        LogLine(s, "win", "You take " .. Money(payout) .. ".")
+        s.net = payout - s.wager
+        LogLine(s, "win", "You take " .. Money(payout) .. " (net " .. Signed(s.net) .. ").")
         if DB.debt > 0 then
             local pay = min(DB.debt, DB.gold)
             DB.gold = DB.gold - pay
@@ -394,9 +406,10 @@ local function FinishMatch(result)
         end
     else
         local loss = floor(s.wager * c.lossMult * c.lossFrac)
-        DB.gold = DB.gold - loss
+        DB.gold = DB.gold + (s.wager - loss)
         DB.losses = DB.losses + 1
         s.loss = loss
+        s.net = -loss
         LogLine(s, "lose", "You pay " .. Money(loss) .. ".")
     end
 
@@ -436,6 +449,12 @@ local function StartMatch(rung, wager, manual)
     local c = BuildConfig(rung)
     wager = max(c.minWager, floor(wager or c.minWager))
     if wager > DB.gold then return false end
+
+    -- the stake leaves the wallet here, not at settlement. That is the whole
+    -- point: reloading out of a bad opening roll now forfeits the stake
+    -- instead of walking away from the match for free.
+    DB.gold = DB.gold - wager
+    DB.stake = wager
 
     state = {
         cfg = c, wager = wager, max = c.ceiling,
@@ -493,6 +512,7 @@ GameOver = function()
     if DB.ended then return end
     DB.ended = true
     state = nil
+    DB.stake = 0
     local earned = floor(math.sqrt(max(0, DB.peak) / 1000))
     DB.crowns = DB.crowns + earned
     DB.lastCrowns = earned
@@ -528,6 +548,7 @@ StartNewRun = function()
     DB.wins, DB.losses = 0, 0
     DB.debt, DB.loanUsed = 0, false
     DB.ended, DB.lastCrowns = false, 0
+    DB.stake = 0
     state = nil
     stateToken = stateToken + 1
     -- a new run starts the Runner's clock from zero
@@ -806,8 +827,16 @@ function ns.Refresh()
     ns.selectedRung = min(DB.bestRung, max(1, ns.selectedRung))
 
     local cfg = BuildConfig(ns.selectedRung)
-    if not ns.wager or ns.wager < cfg.minWager then ns.wager = cfg.minWager end
-    if ns.wager > DB.gold then ns.wager = max(cfg.minWager, DB.gold) end
+    local live = state and not state.finished
+
+    -- while a match is live the stake is already off the wallet, so the bet on
+    -- the table is state.wager and must not be re-clamped to the lower gold
+    if live then
+        ns.wager = state.wager
+    else
+        if not ns.wager or ns.wager < cfg.minWager then ns.wager = cfg.minWager end
+        if ns.wager > DB.gold then ns.wager = max(cfg.minWager, DB.gold) end
+    end
 
     W.gold:SetText(Money(DB.gold))
     local crowns = DB.crowns > 0 and ("   " .. DB.crowns .. " crowns") or ""
@@ -836,18 +865,22 @@ function ns.Refresh()
         W.affix[1]:SetTextColor(DIM[1], DIM[2], DIM[3])
     end
 
-    local live = state and not state.finished
     if live then
         W.big:SetText(tostring(state.max))
         W.big:SetTextColor(BONE[1], BONE[2], BONE[3])
         W.range:SetText(("rolling 1 - %d    .    %s on the table"):format(state.max, Money(state.wager)))
     elseif state and state.finished then
+        -- net, not the gross pot: the stake was taken when the match opened
+        local net = state.net or 0
+        if net >= 0 then
+            W.big:SetText("+" .. Money(net))
+        else
+            W.big:SetText("-" .. Money(-net))
+        end
         if state.result == "win" then
-            W.big:SetText("+" .. Money(state.payout or 0))
             W.big:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
             W.range:SetText("you take the pot")
         else
-            W.big:SetText("-" .. Money(state.loss or 0))
             W.big:SetTextColor(0.85, 0.30, 0.26)
             W.range:SetText("you pay up")
         end
@@ -898,7 +931,8 @@ function ns.Refresh()
         W.hint:SetText("click to auto-roll  .  shift-click to roll it yourself")
     end
 
-    W.loan:SetShown(DB.gold < cfg.minWager and not DB.loanUsed and not DB.ended)
+    -- no loan while a hand is live: the stake is already committed
+    W.loan:SetShown(not live and DB.gold < cfg.minWager and not DB.loanUsed and not DB.ended)
     W.prev:SetEnabled(ns.selectedRung > 1)
     W.next:SetEnabled(ns.selectedRung < DB.bestRung)
 
@@ -1007,6 +1041,17 @@ ev:SetScript("OnEvent", function(_, event, arg1)
         ns.selectedRung = DB.bestRung
         ns.wager = NPCS[DB.bestRung][6]
         Build()
+        -- A stake still on the table at login means the client was reloaded or
+        -- killed mid-match. The house keeps it and the hand counts as a loss,
+        -- so bailing out of a bad opening roll is never free.
+        if (DB.stake or 0) > 0 then
+            local abandoned = DB.stake
+            DB.stake = 0
+            DB.losses = DB.losses + 1
+            DB.forfeits = (DB.forfeits or 0) + 1
+            print(("|cffc9a227Deathroll Baron|r: you left %s on the table. The house keeps it."):format(Money(abandoned)))
+            BustCheck()
+        end
         local net = ApplyOffline()
         if net ~= 0 then
             print(("|cffc9a227Deathroll Baron|r: the Runner brought back %s."):format(Money(net)))
@@ -1070,6 +1115,7 @@ SlashCmdList["DEATHROLLBARON"] = function(msg)
         DB.debt, DB.loanUsed = 0, false
         DB.ended, DB.lastCrowns = false, 0
         DB.wins, DB.losses = 0, 0
+        DB.stake = 0
         state = nil
         stateToken = stateToken + 1
         runnerAccum, runnerClock = 0, 0
