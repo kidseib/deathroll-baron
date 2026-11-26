@@ -1,0 +1,28 @@
+name: attach
+on:
+  workflow_dispatch:
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package
+        run: |
+          set -euo pipefail
+          VER=0.0.11
+          cd addon
+          zip -r "../DeathrollBaron-${VER}.zip" DeathrollBaron
+          cd ..
+          sha256sum "DeathrollBaron-${VER}.zip" > "DeathrollBaron-${VER}.zip.sha256"
+          ls -la DeathrollBaron-${VER}*
+          unzip -l "DeathrollBaron-${VER}.zip"
+          cat "DeathrollBaron-${VER}.zip.sha256"
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload v0.0.11 DeathrollBaron-0.0.11.zip DeathrollBaron-0.0.11.zip.sha256 --clobber --repo kidseib/deathroll-baron
+          gh release view v0.0.11 --repo kidseib/deathroll-baron --json tagName,isPrerelease,assets --jq '.tagName, .isPrerelease, (.assets[] | "\(.name) \(.size)")'
