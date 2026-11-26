@@ -10,6 +10,46 @@ versioning is [SemVer](https://semver.org/).
 - Wager slider to replace the stepper (needs a thumb texture).
 - Challenge your current target; addon-vs-addon multiplayer.
 
+## [0.0.7] — 2026-11-26
+
+Three wins in twenty, and no crowns to show for any of it. The luck system was pointing backwards.
+
+### Fixed
+
+- **"Luck" was a penalty and "their hex" was a buff.** In a deathroll you want to roll *low*: a small
+  number leaves the other side almost nothing to roll in. The old `DrawRoll` had the player keeping the
+  **higher** of two rolls and the NPC keeping the **lower** — both made the player more likely to lose.
+  `DrawRoll(max, bias, wantLow)` now takes which end the roller wants; the player passes `true`, the
+  NPC `false`. Negative luck is meaningful too: it means you get the bad of two.
+- **`Pocket Sand` helped the enemy.** Sold at 250c as a power-up, it *added* 8% enemy luck per rank.
+  It now subtracts it. That was nine ranks of buying your own losses.
+- **Bone Crowns were practically unwinnable.** `floor(sqrt(peak / 1000))` returns 0 until a run peaks at
+  1000 copper, so a losing run paid nothing and the prestige loop never started. It is now
+  `max(1, floor(sqrt(peak / 250)))`: every finished run pays at least one, a 500-peak bust pays 1, a
+  full ladder pays about 68.
+
+### Added
+
+- **A live odds meter.** `ODDS 54%` sits under the board, coloured green above 55 and red below 45, and
+  it is the real number — solved exactly, not sampled. It accounts for the current range, whose turn it
+  is, both sides' luck, and the `Desperate` affix, and it updates after every roll. Idle, it shows the
+  odds of the hand you are about to start.
+- **`/drb odds`** prints the opening odds for the selected rung from both seats: opener and second player.
+
+### Changed
+
+- **The opening edge.** `BuildConfig` gives the player `0.55` luck at rung 1, bleeding away by `0.025`
+  per rung until it is gone in the early twenties. Early rungs are meant to be won; affixes take over
+  from there. `EDGE_BASE` and `EDGE_STEP` are the two constants if it still feels wrong.
+- The solver is O(m²) per ceiling, not per roll: rows only depend on smaller ranges, so one table grown
+  to the largest ceiling in use answers everything after that. Without this the 1000-ceiling rungs
+  would have spent half a second of the main thread on every roll.
+
+### Note
+
+Never played in game — syntax-checked only. The odds numbers are derived from the rules, not observed,
+so `ODDS` is the one thing in here that should be trustworthy before the rest is.
+
 ## [0.0.6] — 2026-11-26
 
 One number in the middle of the window could not tell you whose roll it was. Now the board has two
@@ -44,6 +84,26 @@ sides, and it reacts when a number lands.
 Schema is 5 (`DB.streak`). The single `W.big` label and its 40pt font are gone; the board replaces it
 and the net result moved to the range line. Nothing here has been seen rendering — the board sits at
 -184 with a 64pt height, the affixes end around -181, and the range line is at -252.
+
+## [0.0.6] — 2026-11-26
+
+One number in the middle of the window could not tell you whose roll it was. Now the board has two
+sides, and it reacts when a number lands.
+
+### Added
+
+- **A split roll board.** `YOUR ROLL` on the left in gold and `THEIR ROLL` on the right in red, each
+  with its own 32pt number, each in its own framed panel. The side to move is marked with `<<` and a
+  bright border; the other sits dim.
+- **Per-roll pop.** The number that just changed punches in from 15% alpha to full over 180ms, so you
+  can see which side moved even at a glance across the room.
+- **Result flash.** A winning hand paints both panels green, a losing one red, and the wash fades over
+  0.9s.
+- **Live pulse.** While a hand is running, the same wash breathes gold at ~0.4Hz under the numbers.
+- **A croupier line.** The range text carries tension chosen by the ceiling: `plenty of room` above 60,
+  `every number matters` at 25, `the table goes quiet` at 12, `no room left` at 4 or less.
+- **Streaks.** `DB.streak` counts consecutive wins hands and shows in the header from 3 up
+  (`6 in a row`). It resets on a loss, a new run, `/drb reset`, and on a bust.
 
 ## [0.0.5] — 2026-11-26
 
