@@ -1,0 +1,95 @@
+name: Patch odds
+
+# One-shot: teaches the odds solver about the Desperate affix, then deletes itself.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Apply the patch
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+
+          p = pathlib.Path("addon/DeathrollBaron/DeathrollBaron.lua")
+          src = p.read_text(encoding="utf-8")
+          orig = src
+
+          if "DESPERATE_FROM" in src:
+              print("already patched")
+              sys.exit(0)
+
+          def sub(pattern, repl, name, want=1, count=1):
+              global src
+              new, n = re.subn(pattern, repl, src, count=count)
+              if n != want:
+                  sys.exit("%s: expected %d match(es), got %d" % (name, want, n))
+              src = new
+
+          sub(r"(?m)^local SCHEMA = 5\s*$",
+              "local SCHEMA = 5\n\n"
+              "-- The Desperate affix is the one enemy modifier the odds solver has to know\n"
+              "-- about by name: it lifts their luck only once the range is small, so the\n"
+              "-- DP cannot fold it into a single enemy bias. StepMatch and OddsUpTo read\n"
+              "-- these two constants, so they can never disagree again.\n"
+              "local DESPERATE_FROM = 20\n"
+              "local DESPERATE_LUCK = 0.30",
+              "constants")
+
+          sub(r"local function OddsUpTo\(m, pLuck, eLuck\)",
+              "local function OddsUpTo(m, pLuck, eLuck, desperate)",
+              "signature")
+
+          sub(r'local key = floor\(pLuck \* 1000\) \.\. ":" \.\. floor\(eLuck \* 1000\)',
+              'local key = floor(pLuck * 1000) .. ":" .. floor(eLuck * 1000) .. ":" .. (desperate and 1 or 0)',
+              "cache key")
+
+          sub(r"(?m)^    local qe = min\(1, math\.abs\(eLuck\)\)\n"
+              r"    local eWantLow = eLuck < 0\n"
+              r"\n"
+              r"(    for r = entry\.n \+ 1, m do\n)",
+              "    for r = entry.n + 1, m do\n"
+              "        -- Desperate only bites under %d, which is exactly where it matters,\n"
+              "        -- so each row carries its own enemy bias instead of one for the table.\n"
+              "        local eb = eLuck\n"
+              "        if desperate and r <= DESPERATE_FROM then eb = eb + DESPERATE_LUCK end\n"
+              "        local qe = min(1, math.abs(eb))\n"
+              "        local eWantLow = eb < 0\n" % 20,
+              "per-row enemy bias")
+
+          sub(r"OddsUpTo\(cfg\.ceiling, cfg\.playerLuck, cfg\.enemyLuck\)",
+              "OddsUpTo(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck, cfg.desperate and true or false)",
+              "call sites", want=2, count=0)
+
+          sub(r"(?m)^(\s*)if c\.desperate and not isPlayer and s\.max <= 20 then\n"
+              r"\s*bias = bias \+ 0\.30\n"
+              r"(\s*)end",
+              r"\1if c.desperate and not isPlayer and s.max <= DESPERATE_FROM then\n"
+              r"\1    bias = bias + DESPERATE_LUCK\n"
+              r"\2end",
+              "step match")
+
+          p.write_text(src, encoding="utf-8")
+          print("patched, %d -> %d bytes" % (len(orig), len(src)))
+          PY
+      - name: Syntax check
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1 > /dev/null
+          luac5.1 -p addon/DeathrollBaron/DeathrollBaron.lua
+          echo "lua ok"
+      - name: Commit
+        run: |
+          if git diff --quiet; then echo "no change"; exit 0; fi
+          git config user.name "Deathroll Baron CI"
+          git config user.email "ci@users.noreply.github.com"
+          git commit -am "0.0.7: model the Desperate affix in the odds solver"
+          git push origin HEAD:main
