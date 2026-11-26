@@ -1714,26 +1714,31 @@ function J.Step(el)
     if not J.ready then return end
     if el > 0.1 then el = 0.1 end
 
+    J.Pace()
+    J.TickReels(el)
+    J.TickHold(el)
+
     local s = state
     if s ~= J.seenState then
         J.seenState = s
         J.seenP, J.seenE, J.seenResult = nil, nil, nil
         J.scaleYou, J.scaleThem = 1, 1
+        J.prevMax = nil
     end
 
     if s and not s.finished then
         if s.lastPlayer ~= J.seenP then
             J.seenP = s.lastPlayer
-            if s.lastPlayer then J.Roll("you") end
+            if s.lastPlayer then J.ReelStart("you", s.lastPlayer) end
         end
         if s.lastEnemy ~= J.seenE then
             J.seenE = s.lastEnemy
-            if s.lastEnemy then J.Roll("them") end
+            if s.lastEnemy then J.ReelStart("them", s.lastEnemy) end
         end
         J.seenResult = nil
     elseif s and s.finished and not J.seenResult then
         J.seenResult = s.result or "win"
-        J.Result(s)
+        J.Ceremony(s)
     end
 
     for i = 1, #J.parts do
@@ -1784,9 +1789,140 @@ function J.Step(el)
     end
 end
 
+---------------------------------------------------------------------
+-- 0.0.10: pace, reel, and a ceremony for the one
+-- Still additive: the odds solver, the match engine and the save file
+-- are untouched. These three only change what the table feels like.
+---------------------------------------------------------------------
+
+-- The base ticker re-reads cfg.speed after every roll, so the tension
+-- curve is written straight onto the live config: wide ranges run brisk
+-- and the ticker drags as the range closes. J.paceBase is captured once
+-- per hand, which keeps Fast Hands fast instead of flattening it to 0.85.
+function J.PaceK(m, ceiling)
+    local frac = m / max(1, ceiling)
+    if frac > 1 then frac = 1 end
+    if frac < 0 then frac = 0 end
+    return min(1.50, max(0.62, 0.70 + 0.95 * (1 - frac) ^ 1.7))
+end
+
+function J.Pace()
+    local s = state
+    if not s then
+        J.paceState = nil
+        return
+    end
+    if J.paceState ~= s then
+        J.paceState = s
+        J.paceBase = (s.cfg and s.cfg.speed) or 0.85
+    end
+    if s.finished or s.manual or not s.cfg then return end
+    s.cfg.speed = J.paceBase * J.PaceK(s.max or 1, s.cfg.ceiling or 100)
+end
+
+-- The reel: the number spins inside the range it was rolled in, then
+-- lands. ns.Refresh rewrites both numbers on every tick, so the wrapper
+-- repaints the reel after it; a reel in flight wins the frame, which is
+-- what stops the real number leaking a frame early.
+J.reelYou, J.reelThem, J.prevMax = nil, nil, nil
+
+function J.ReelStart(side, value)
+    local s = state
+    local ceiling = (s and s.cfg and s.cfg.ceiling) or 100
+    local span = J.prevMax or ceiling
+    if span < 2 then span = 2 end
+    local frac = min(1, (s and s.max or span) / max(1, ceiling))
+    local t = { value = value, span = span, life = 0.16 + 0.18 * (1 - frac) }
+    if side == 'you' then J.reelYou = t else J.reelThem = t end
+    J.prevMax = s and s.max or nil
+    J.Roll(side)
+end
+
+function J.ReelPaint()
+    if J.reelYou and W.youNum then
+        W.youNum:SetText(tostring(random(1, J.reelYou.span)))
+    end
+    if J.reelThem and W.themNum then
+        W.themNum:SetText(tostring(random(1, J.reelThem.span)))
+    end
+end
+
+function J.ReelSettle(t, fs, side)
+    if not t or not fs then return nil end
+    if t.life > 0 then return t end
+    fs:SetText(tostring(t.value))
+    if side == 'you' then J.scaleYou = 1.30 else J.scaleThem = 1.30 end
+    return nil
+end
+
+function J.TickReels(el)
+    if J.reelYou then
+        J.reelYou.life = J.reelYou.life - el
+        J.reelYou = J.ReelSettle(J.reelYou, W.youNum, 'you')
+    end
+    if J.reelThem then
+        J.reelThem.life = J.reelThem.life - el
+        J.reelThem = J.ReelSettle(J.reelThem, W.themNum, 'them')
+    end
+end
+
+function J.SettleAll()
+    if J.reelYou and W.youNum then W.youNum:SetText(tostring(J.reelYou.value)) end
+    if J.reelThem and W.themNum then W.themNum:SetText(tostring(J.reelThem.value)) end
+    J.reelYou, J.reelThem = nil, nil
+end
+
+-- The one. Every hand ends here, so this is the beat that has to land:
+-- the losing number slams up, the table holds, and only then the verdict.
+J.hold = nil
+
+function J.Ceremony(s)
+    J.SettleAll()
+    local one = ((s.lastEnemy == 1) and 'them') or ((s.lastPlayer == 1) and 'you') or nil
+    if not one then
+        J.Result(s)
+        return
+    end
+    local won = (one == 'them')
+    local panel = won and W.themPanel or W.youPanel
+    if won then J.scaleThem = 2.5 else J.scaleYou = 2.5 end
+    local x, y = J.Center(panel)
+    J.Burst(x, y, 22, true)
+    J.Burst(x, y - 24, 10, true)
+    if won then
+        J.Float(0, 150, 'THEY ROLL A ONE', 22, GOLD, 1.5)
+        if J.glow then J.glow:SetColorTexture(1, 0.84, 0.28, 1) end
+    else
+        J.Float(0, 150, 'A ONE. THE POT GOES.', 20, RED, 1.5)
+        if J.glow then J.glow:SetColorTexture(0.78, 0.16, 0.12, 1) end
+    end
+    J.glowA = 0.40
+    J.hold = { s = s, t = 0.55, one = one }
+end
+
+function J.TickHold(el)
+    local h = J.hold
+    if not h then return end
+    if state ~= h.s then
+        J.hold = nil
+        return
+    end
+    h.t = h.t - el
+    if h.t <= 0 then
+        J.hold = nil
+        J.Result(h.s)
+        return
+    end
+    if h.t > 0.12 then
+        local slam = 2.0 + 0.6 * (h.t / 0.55)
+        if h.one == 'them' then J.scaleThem = slam else J.scaleYou = slam end
+    end
+end
+
 local jbase = ns.Refresh
 ns.Refresh = function(...)
     if jbase then jbase(...) end
+    J.ReelPaint()
     J.Odds()
 end
 

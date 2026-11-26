@@ -10,6 +10,35 @@ versioning is [SemVer](https://semver.org/).
 - Wager slider to replace the stepper (needs a thumb texture).
 - Challenge your current target; addon-vs-addon multiplayer.
 
+## [0.0.10] — 2026-11-26
+
+The table learns to hold its breath: the ticker, the number and the one all get their own timing.
+
+### Added
+
+- **A tension curve on the roll ticker.** `J.PaceK` maps the live range onto a multiplier: the
+  opening rolls run at about 0.7x, the middle is neutral, and the last few drag at up to 1.5x. It is
+  written onto `cfg.speed` between rolls, and the ticker re-reads that field every time it schedules
+  itself, so the match engine did not change. `J.paceBase` is captured per hand, which keeps Fast
+  Hands fast instead of flattening it back to the default.
+- **A reel on the number.** A roll now spins for 160-340ms inside the range it was rolled in, then
+  lands with a small punch. `ns.Refresh` rewrites both numbers every tick, so the wrapper repaints
+  the reel after it and the real number cannot leak a frame early.
+- **A ceremony for the one.** Every hand ends on a 1, so that is the beat worth staging: the losing
+  number slams to 2.5x, the frame glow spikes, a line hangs above the board (`THEY ROLL A ONE` in
+  gold, `A ONE. THE POT GOES.` in red), and the verdict is held back 550ms so the hand lands before
+  the money does.
+
+### Changed
+
+- Roll cadence is no longer one flat 0.85s. A hand opens quick, slows as the range closes, and
+  finishes on a held beat. Manual (shift-click) matches keep their one-roll-per-click feel.
+
+### Note
+
+Schema is still 5, and `OddsUpTo` / `WinChance` are untouched: this pass draws, times and sequences,
+and never changes what is rolled or what is saved. Still not seen in game.
+
 ## [0.0.9] - 2026-11-26
 
 A layout fix. No rule, no number, no save format touched.
