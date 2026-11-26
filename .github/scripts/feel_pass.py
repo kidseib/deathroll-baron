@@ -113,7 +113,7 @@ for label, old, new in edits:
 if 'ns.autoDelay' in src:
     print('FAIL: ns.autoDelay survived')
     sys.exit(1)
-for token in ('EV %s', 'ns.AutoPause(s)', 'gap * 0.75', 'SCHEMA = 5'):
+for token in ('EV %s', 'function ns.AutoPause(s)', 'ns.AutoPause(s) then return end', 'gap * 0.75', 'SCHEMA = 5'):
     if src.count(token) != 1:
         print('FAIL: expected one %r, found %d' % (token, src.count(token)))
         sys.exit(1)
