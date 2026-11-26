@@ -67,7 +67,7 @@ sides, and it reacts when a number lands.
 - **Live pulse.** While a hand is running, the same wash breathes gold at ~0.4Hz under the numbers.
 - **A croupier line.** The range text carries tension chosen by the ceiling: `plenty of room` above 60,
   `every number matters` at 25, `the table goes quiet` at 12, `no room left` at 4 or less.
-- **Streaks.** `DB.streak` counts consecutive wins hands and shows in the header from 3 up
+- **Streaks.** `DB.streak` counts consecutive won hands and shows in the header from 3 up
   (`6 in a row`). It resets on a loss, a new run, `/drb reset`, and on a bust.
 
 ### Changed
@@ -84,26 +84,6 @@ sides, and it reacts when a number lands.
 Schema is 5 (`DB.streak`). The single `W.big` label and its 40pt font are gone; the board replaces it
 and the net result moved to the range line. Nothing here has been seen rendering — the board sits at
 -184 with a 64pt height, the affixes end around -181, and the range line is at -252.
-
-## [0.0.6] — 2026-11-26
-
-One number in the middle of the window could not tell you whose roll it was. Now the board has two
-sides, and it reacts when a number lands.
-
-### Added
-
-- **A split roll board.** `YOUR ROLL` on the left in gold and `THEIR ROLL` on the right in red, each
-  with its own 32pt number, each in its own framed panel. The side to move is marked with `<<` and a
-  bright border; the other sits dim.
-- **Per-roll pop.** The number that just changed punches in from 15% alpha to full over 180ms, so you
-  can see which side moved even at a glance across the room.
-- **Result flash.** A winning hand paints both panels green, a losing one red, and the wash fades over
-  0.9s.
-- **Live pulse.** While a hand is running, the same wash breathes gold at ~0.4Hz under the numbers.
-- **A croupier line.** The range text carries tension chosen by the ceiling: `plenty of room` above 60,
-  `every number matters` at 25, `the table goes quiet` at 12, `no room left` at 4 or less.
-- **Streaks.** `DB.streak` counts consecutive wins hands and shows in the header from 3 up
-  (`6 in a row`). It resets on a loss, a new run, `/drb reset`, and on a bust.
 
 ## [0.0.5] — 2026-11-26
 
