@@ -14,10 +14,10 @@ versioning is [SemVer](https://semver.org/).
 
 The table never waits for you to press anything twice.
 
-- **Auto-spin lives on the ROLL button.** Right-click it and the button turns green and names itself
-  (`AUTO ON . ROLL 50`); the hint under it says what the next click will do, and the tooltip spells
-  both clicks out. Every hand that ends deals the same stake again, one beat after the ceremony, so
-  the reveal is never cut short.
+- **Auto-spin is a control on the button.** The right end of the ROLL bar carries an `AUTO OFF` pill;
+  click it and it reads `AUTO ON` in green behind a green border, with its own tooltip. Nothing is
+  hidden behind a modifier key. Every hand that ends deals the same stake again, one beat after the
+  ceremony, so the reveal is never cut short.
 - **Stopping is one click.** A plain click during an auto hand turns the deal off and lets that hand
   finish, since the stake is already on the table and there is nothing to cancel. Taking over with
   shift-click ends it at the end of the hand too.

@@ -948,13 +948,7 @@ local function Build()
     end)
     W.allin:SetPoint("TOPRIGHT", -42, -396)
 
-    W.roll = Btn(frame, "ROLL", 368, 40, 16, function(_, button)
-        if button == "RightButton" then
-            ns.auto = not ns.auto
-            ns.autoKey, ns.autoT = nil, 0
-            ns.Refresh()
-            return
-        end
+    W.roll = Btn(frame, "ROLL", 368, 40, 16, function()
         -- a plain click on a live auto hand stops the next deal, not this one
         if ns.auto and not IsShiftKeyDown() and state and not state.finished then
             ns.auto = false
@@ -964,15 +958,41 @@ local function Build()
         DoRoll()
     end)
     W.roll:SetPoint("TOP", 0, -424)
-    W.roll:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     W.roll:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine("ROLL", GOLD[1], GOLD[2], GOLD[3])
         GameTooltip:AddLine("Left click puts up the stake.", 1, 1, 1)
-        GameTooltip:AddLine("Right click turns auto-spin on: the same stake is dealt again after every hand, until you stop it or go broke.", 1, 1, 1, true)
+        GameTooltip:AddLine("Shift-click rolls one number at a time.", 1, 1, 1)
         GameTooltip:Show()
     end)
     W.roll:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- auto-spin is a control you can see: a pill on the right of the bar
+    W.autoBtn = CreateFrame("Button", nil, W.roll)
+    W.autoBtn:SetSize(72, 22)
+    W.autoBtn:SetPoint("RIGHT", -6, 0)
+    W.autoBtn.edge = W.autoBtn:CreateTexture(nil, "BACKGROUND")
+    W.autoBtn.edge:SetAllPoints()
+    W.autoBtn.edge:SetColorTexture(DIM[1], DIM[2], DIM[3], 0.55)
+    W.autoBtn.bg = W.autoBtn:CreateTexture(nil, "BACKGROUND", nil, 1)
+    W.autoBtn.bg:SetPoint("TOPLEFT", 1, -1)
+    W.autoBtn.bg:SetPoint("BOTTOMRIGHT", -1, 1)
+    W.autoBtn.bg:SetColorTexture(0.10, 0.09, 0.07, 0.95)
+    W.autoBtn.label = FS(W.autoBtn, BONE, 10)
+    W.autoBtn.label:SetPoint("CENTER")
+    W.autoBtn.label:SetText("AUTO OFF")
+    W.autoBtn:SetScript("OnClick", function()
+        ns.auto = not ns.auto
+        ns.autoKey, ns.autoT = nil, 0
+        ns.Refresh()
+    end)
+    W.autoBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Auto-spin", GOLD[1], GOLD[2], GOLD[3])
+        GameTooltip:AddLine("On: every hand that ends deals the same stake again, until you stop it or go broke.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    W.autoBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- under the button, in its own band: above it would clip the quick buttons
     W.hint = FS(frame, DIM, 10)
@@ -1310,18 +1330,25 @@ function ns.Refresh()
         W.roll:SetText("ROLL ONE   (click)")
         W.hint:SetText("manual: one roll per click, shift or not")
     elseif live then
-        W.roll:SetText(ns.auto and "ROLLING   .   AUTO ON" or "ROLLING")
+        W.roll:SetText("ROLLING")
         W.hint:SetText(ns.auto and "click to stop after this hand" or "shift-click to take over")
     else
-        W.roll:SetText((ns.auto and "AUTO ON   .   ROLL " or "ROLL   ") .. Money(ns.wager))
-        W.hint:SetText(ns.auto and "the same stake again in a moment  .  right-click to stop"
-            or "right-click: auto-spin  .  shift-click: roll one at a time")
+        W.roll:SetText("ROLL   " .. Money(ns.wager))
+        W.hint:SetText(ns.auto and "same stake deals again on its own  .  AUTO to stop"
+            or "shift-click: roll one at a time  .  AUTO: keep dealing")
     end
-    -- the button carries its own state: green and named while auto is on
-    local rollFS = W.roll:GetFontString()
-    if rollFS then
-        local rc = ns.auto and GREEN or BONE
-        rollFS:SetTextColor(rc[1], rc[2], rc[3])
+    -- the pill on the bar is the control, so the bar's own text stays plain
+    if W.autoBtn then
+        W.autoBtn.label:SetText(ns.auto and "AUTO ON" or "AUTO OFF")
+        if ns.auto then
+            W.autoBtn.label:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
+            W.autoBtn.edge:SetColorTexture(GREEN[1], GREEN[2], GREEN[3], 0.90)
+            W.autoBtn.bg:SetColorTexture(0.14, 0.20, 0.10, 0.95)
+        else
+            W.autoBtn.label:SetTextColor(BONE[1], BONE[2], BONE[3])
+            W.autoBtn.edge:SetColorTexture(DIM[1], DIM[2], DIM[3], 0.55)
+            W.autoBtn.bg:SetColorTexture(0.10, 0.09, 0.07, 0.95)
+        end
     end
 
     -- no loan while a hand is live: the stake is already committed
