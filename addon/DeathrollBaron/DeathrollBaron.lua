@@ -1746,6 +1746,31 @@ function J.Result(s)
     end
 end
 
+-- The bar is a single 384px line, so a zero unit is dropped rather than
+-- padded: "116g 3s", "116g", "50s", "25c". Nothing nonzero is rounded.
+local function BarMoney(c)
+    c = floor((c or 0) + 0.5)
+    if c < 0 then return "-" .. BarMoney(-c) end
+    local g = floor(c / 10000)
+    local s = floor((c % 10000) / 100)
+    local cu = c % 100
+    if g > 0 then
+        if s > 0 then return Comma(g) .. "g " .. s .. "s" end
+        return Comma(g) .. "g"
+    end
+    if s > 0 then
+        if cu > 0 then return s .. "s " .. cu .. "c" end
+        return s .. "s"
+    end
+    return cu .. "c"
+end
+
+local function BarSigned(c)
+    c = floor((c or 0) + 0.5)
+    if c < 0 then return "-" .. BarMoney(-c) end
+    return "+" .. BarMoney(c)
+end
+
 function J.Odds()
     if not J.ready or not DB then return end
     local s = state
@@ -1766,8 +1791,8 @@ function J.Odds()
     if pct >= 56 then col = GREEN elseif pct <= 44 then col = RED end
     J.bar.fill:SetWidth(max(1, floor(382 * chance)))
     J.bar.fill:SetColorTexture(col[1], col[2], col[3], 0.55 + 0.25 * (0.5 + 0.5 * math.sin(GetTime() * 3)))
-    J.bar.text:SetText(("%d%% YOU  .  pays %s  .  risk %s  .  EV %s"):format(
-        pct, Money(payout), Money(risk), Signed(ev)))
+    J.bar.text:SetText(("%d%% . pays %s . risk %s . EV %s"):format(
+        pct, BarMoney(payout), BarMoney(risk), BarSigned(ev)))
     J.bar.text:SetTextColor(col[1], col[2], col[3])
 end
 

@@ -21,10 +21,12 @@ One pause, one number, one reel that lands.
   0.28s after a win and 0.42s after a loss, shrinking with `Fast Hands` (about 0.78-0.97s in
   total), so the pause stays a beat instead of becoming the bulk of a fast hand. The next deal
   still never lands inside the ceremony.
-- **The odds bar carries the hand's EV.** `57% YOU . pays 2g 40s . risk 50s . EV +37c` is
+- **The odds bar carries the hand's EV.** `57% . pays 2g 40s . risk 50s . EV +37c` is
   `chance x (payout - stake) - (1 - chance) x loss`. It uses the same `WinChance` that draws the
   bar, and it shows the selected rung while idle, so a rung can be judged before the auto-spin
-  leaves it.
+  leaves it. The bar drops zero units (`116g`, not `116g 0s`) and the redundant `YOU`, so the
+  longest realistic line - `100% . pays 116g 3s . risk 2,997g . EV -1,900g` at 46 characters -
+  fits the 384px bar with room to spare.
 
 ### Fixed
 
