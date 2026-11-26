@@ -1,0 +1,22 @@
+name: bar-copy
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch
+        run: python3 .github/scripts/bar_copy.py
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name "Error.Seib"
+          git config user.email "kidseib@gmail.com"
+          git add -A
+          git commit -m "0.0.12: say the bar width honestly"
+          git push origin HEAD:main
