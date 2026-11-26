@@ -1,0 +1,73 @@
+name: ship
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bump
+        run: |
+          python3 - <<'PY'
+          import re
+          TOC = "addon/DeathrollBaron/DeathrollBaron.toc"
+          t = open(TOC, encoding="utf-8").read()
+          assert "## Version: 0.0.8" not in t, "already bumped"
+          t2 = re.sub(r"(?m)^## Version:.*$", "## Version: 0.0.8", t, count=1)
+          assert t2 != t, "no version line"
+          open(TOC, "w", encoding="utf-8").write(t2)
+
+          C = "CHANGELOG.md"
+          c = open(C, encoding="utf-8").read()
+          assert "## [0.0.8]" not in c, "already logged"
+          block = """## [0.0.8] - 2026-11-26
+          The feel pass: the table stops being a spreadsheet and starts being a slot machine.
+          Nothing about the odds changed - only how loud they are.
+
+          ### Added
+
+          - **A real odds bar.** The line under the board is now a 384x18 bar with a live fill and
+            `57% YOU . pays 2g 40s . risk 50s` on it. Green above 56%, gold between, red under 44%.
+            It updates on every roll, live or between hands, and the fill breathes.
+          - **Cha-ching.** Winning a hand throws a coin-and-spark burst out of your panel and across the
+            board, floats `CHA-CHING!` and the pot in gold, flashes the whole frame and punches the
+            gold counter. Every single roll punches that side's number and spits a few sparks, so the
+            board is never still.
+          - **Sound**, where the client exposes `SOUNDKIT` (`LOOT_ROLL_WON` / `LOOT_ROLL_LOST`);
+            guarded, so an old client just stays quiet instead of erroring.
+
+          ### Changed
+
+          - **Quick fire.** Roll ticker 0.85s -> 0.26s, opening delay 0.30s -> 0.08s, result flash
+            0.90s -> 0.42s, number pop 0.18s -> 0.12s. A ten-roll hand now takes about three seconds.
+          - Fast Hands now scales off the new base speed, so a maxed Fast Hands hand is near-instant.
+          - The tour line points at the odds bar instead of the old ODD% line.
+
+          ### Note
+
+          Everything above is appended as one self-contained module at the end of the file; no existing
+          function was rewritten, so the odds solver, the match engine and the save format are untouched.
+          Schema stays 5. Still never played in game - syntax-checked by CI only.
+
+          """
+          block = "\n".join(line[10:] if line.startswith(" " * 10) else line for line in block.splitlines()) + "\n"
+          idx = c.find("## [0.0.7]")
+          assert idx > 0, "no 0.0.7 heading"
+          c = c[:idx] + block + c[idx:]
+          open(C, "w", encoding="utf-8").write(c)
+          print("bumped")
+          PY
+          grep -m1 '^## Version:' addon/DeathrollBaron/DeathrollBaron.toc
+          grep -n '^## \[0.0.8\]' CHANGELOG.md
+          wc -c CHANGELOG.md addon/DeathrollBaron/DeathrollBaron.lua
+      - name: commit
+        run: |
+          git config user.name deathroll-baron-bot
+          git config user.email bot@users.noreply.github.com
+          git add CHANGELOG.md addon/DeathrollBaron/DeathrollBaron.toc
+          git commit -m "0.0.8: version bump and changelog"
+          git push
