@@ -983,7 +983,7 @@ local function Build()
     W.autoBtn.label:SetText("AUTO OFF")
     W.autoBtn:SetScript("OnClick", function()
         ns.auto = not ns.auto
-        ns.autoKey, ns.autoT = nil, 0
+        ns.autoT = 0
         ns.Refresh()
     end)
     W.autoBtn:SetScript("OnEnter", function(self)
@@ -1965,6 +1965,7 @@ jdriver:SetScript("OnUpdate", function(_, el)
         return
     end
     J.Step(el)
+    ns.AutoTick(el)
 end)
 
 ---------------------------------------------------------------------
@@ -1974,43 +1975,30 @@ end)
 -- longer than the ceremony's hold, so a reveal is never cut short.
 ---------------------------------------------------------------------
 ns.auto = false
+ns.autoT = 0
 ns.autoDelay = 1.1
 
-function ns.AutoDeal()
-    local cfg = BuildConfig(ns.selectedRung)
-    local ok = not DB.ended and DB.gold >= cfg.minWager and ns.wager <= DB.gold
-        and StartMatch(ns.selectedRung, ns.wager, false)
-    if not ok then ns.auto = false end
-    ns.Refresh()
-end
-
+-- Runs on the existing driver, one line after J.Step. StartMatch is the
+-- wallet's own guard: it refuses a finished run and any stake the purse
+-- cannot cover, so a refusal is the only way this stops itself.
 function ns.AutoTick(el)
     if not ns.auto then return end
-    if DB.ended or (frame and not frame:IsShown()) then
+    if DB.ended or not frame:IsShown() then
         ns.auto = false
         return
     end
     local s = state
     if s and not s.finished then
-        ns.autoKey, ns.autoT = nil, 0
+        ns.autoT = 0
         return
     end
     if s and s.manual then
         ns.auto = false
         return
     end
-    local key = s or 0
-    if ns.autoKey ~= key then
-        ns.autoKey, ns.autoT = key, 0
-        return
-    end
     ns.autoT = ns.autoT + el
     if ns.autoT < ns.autoDelay then return end
-    ns.autoKey, ns.autoT = nil, 0
-    ns.AutoDeal()
+    ns.autoT = 0
+    if not StartMatch(ns.selectedRung, ns.wager, false) then ns.auto = false end
+    ns.Refresh()
 end
-
-ns.autoDriver = CreateFrame("Frame")
-ns.autoDriver:SetScript("OnUpdate", function(_, el)
-    ns.AutoTick(el)
-end)
