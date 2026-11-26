@@ -1849,6 +1849,9 @@ function J.Pace()
 end
 
 local HOLD = 0.55
+-- About six frames at 60fps: the time a settled number needs on screen
+-- before the next roll repaints the panel.
+local REEL_READ = 0.10
 
 -- One reel slot is enough: only one side can be rolling at a time, so a
 -- new roll always ends the old one. Settling first is what keeps the
@@ -1868,19 +1871,34 @@ function J.ReelStart(side, value)
     local s = state
     local fs = side == 'you' and W.youNum or W.themNum
     if not fs then return end
+
+    -- The gap the ticker actually scheduled for the next roll. It was timed
+    -- from the range before this one, which is J.span here.
+    local gap
+    if not s.manual and s.paceBase then
+        gap = s.cfg.speed
+        if J.span then gap = min(gap, s.paceBase * J.PaceK(J.span, s.cfg.ceiling)) end
+    end
+
+    -- If the gap cannot fit a scramble and still leave REEL_READ for the
+    -- landing, skip the scramble: the true number ns.Refresh already
+    -- painted stays up for the whole gap, and only the punch remains.
+    if gap and gap - REEL_READ < 0.05 then
+        if side == 'you' then J.scaleYou = 1.30 else J.scaleThem = 1.30 end
+        J.span = s.max
+        J.Roll(side)
+        return
+    end
+
     J.reel = {
         side = side, fs = fs, value = value,
         span = J.span or s.cfg.ceiling,
         life = 0.16 + 0.18 * (1 - s.max / s.cfg.ceiling),
     }
-    -- Fast Hands can make a tick shorter than a reel, and a reel that is
-    -- still spinning when the next number lands never shows a number at
-    -- all. Cap its life under the gap the ticker actually scheduled, timed
-    -- from the range the gap was measured on (J.span, the previous number).
-    if not s.manual and s.paceBase then
-        local gap = s.cfg.speed
-        if J.span then gap = min(gap, s.paceBase * J.PaceK(J.span, s.cfg.ceiling)) end
-        J.reel.life = max(0.05, min(J.reel.life, gap * 0.75))
+    -- Fast Hands can make a tick shorter than the reel. Reserve REEL_READ
+    -- of the gap for the landing, with a floor so the spin is never zero.
+    if gap then
+        J.reel.life = max(0.05, min(J.reel.life, gap - REEL_READ))
     end
     J.span = s.max
     J.Roll(side)

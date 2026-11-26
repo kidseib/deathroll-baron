@@ -28,10 +28,12 @@ One pause, one number, one reel that lands.
 
 ### Fixed
 
-- **The reel lands at Fast Hands speeds.** A reel lives 0.16-0.34s, but the ticker runs at
-  0.08-0.18s with Fast Hands and the opening curve, so the next number used to arrive while the
-  reel was still spinning and the real number was never on screen. Reel life is now capped just
-  under the gap the ticker actually scheduled, with a 0.05s floor.
+- **The reel lands, or it does not scramble at all.** A reel lives 0.16-0.34s, but the ticker
+  runs at 0.08-0.18s with Fast Hands and the opening curve, so the next number used to arrive
+  while the reel was still spinning. Reel life now reserves 100ms of the gap for the landing;
+  when the gap cannot fit a scramble and still leave that much, the scramble is skipped and the
+  true number stays up for the whole gap. At max Fast Hands that trades a one-frame flash for
+  the full tick, and the landing punch still fires.
 
 ### Note
 
