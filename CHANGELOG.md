@@ -25,9 +25,11 @@ The table learns to hold its breath: the ticker, the number and the one all get 
   lands with a small punch. `ns.Refresh` rewrites both numbers every tick, so the wrapper repaints
   the reel after it and the real number cannot leak a frame early.
 - **A ceremony for the one.** Every hand ends on a 1, so that is the beat worth staging: the losing
-  number slams to 2.5x, the frame glow spikes, a line hangs above the board (`THEY ROLL A ONE` in
-  gold, `A ONE. THE POT GOES.` in red), and the verdict is held back 550ms so the hand lands before
-  the money does.
+  number slams to 2.5x and holds, the frame glow spikes, a line hangs above the board
+  (`THEY ROLL A ONE` in gold, `A ONE. THE POT GOES.` in red), and the headline holds
+  `a one  .  the pot is coming` for 550ms. What is actually deferred is the text: the board flash
+  still fires on the 1 in the win/lose colour, and the CHA-CHING or BUSTED float, the payout line and
+  the real headline all land together when the beat is spent.
 
 ### Changed
 

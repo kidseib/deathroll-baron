@@ -1737,8 +1737,7 @@ function J.Step(el)
         end
         J.seenResult = nil
     elseif s and s.finished and not J.seenResult then
-        J.seenResult = s.result or "win"
-        J.Ceremony(s)
+        J.EndCheck()
     end
 
     for i = 1, #J.parts do
@@ -1897,7 +1896,32 @@ function J.Ceremony(s)
         if J.glow then J.glow:SetColorTexture(0.78, 0.16, 0.12, 1) end
     end
     J.glowA = 0.40
-    J.hold = { s = s, t = 0.55, one = one }
+    J.hold = { s = s, t = 0.55, one = one, won = won }
+end
+
+-- The headline is the verdict, so the beat has to hold it: the base
+-- refresh writes 'you take the pot' on the same frame the 1 lands, and
+-- this paints over it until the hold is spent, then calls a refresh to
+-- reveal the real line.
+function J.HoldPaint()
+    local h = J.hold
+    if not h or not W.range then return end
+    if h.won then
+        W.range:SetText('a one  .  the pot is coming')
+        W.range:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+    else
+        W.range:SetText('a one  .  the pot is going')
+        W.range:SetTextColor(RED[1], RED[2], RED[3])
+    end
+end
+
+-- One place decides the hand is over. The refresh wrapper reaches this
+-- before the verdict can be painted at all; J.Step keeps it as a fallback.
+function J.EndCheck()
+    local s = state
+    if not s or not s.finished or J.seenResult then return end
+    J.seenResult = s.result or 'win'
+    J.Ceremony(s)
 end
 
 function J.TickHold(el)
@@ -1911,6 +1935,7 @@ function J.TickHold(el)
     if h.t <= 0 then
         J.hold = nil
         J.Result(h.s)
+        ns.Refresh()
         return
     end
     if h.t > 0.12 then
@@ -1923,6 +1948,8 @@ local jbase = ns.Refresh
 ns.Refresh = function(...)
     if jbase then jbase(...) end
     J.ReelPaint()
+    J.EndCheck()
+    J.HoldPaint()
     J.Odds()
 end
 
