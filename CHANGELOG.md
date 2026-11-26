@@ -24,9 +24,9 @@ One pause, one number, one reel that lands.
 - **The odds bar carries the hand's EV.** `57% . pays 2g 40s . risk 50s . EV +37c` is
   `chance x (payout - stake) - (1 - chance) x loss`. It uses the same `WinChance` that draws the
   bar, and it shows the selected rung while idle, so a rung can be judged before the auto-spin
-  leaves it. The bar drops zero units (`116g`, not `116g 0s`) and the redundant `YOU`, so the
-  longest realistic line - `100% . pays 116g 3s . risk 2,997g . EV -1,900g` at 46 characters -
-  fits the 384px bar with room to spare.
+  leaves it. The bar drops zero units (`116g`, not `116g 0s`) and the redundant `YOU`, so a
+  max-purse Double or Nothing line is 46 characters, and even a copper-bearing wager stays near
+  52 - inside the 384px bar with tens of pixels to spare.
 
 ### Fixed
 
