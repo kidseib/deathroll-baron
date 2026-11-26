@@ -12,7 +12,9 @@ local BLOOD = { 0.72, 0.20, 0.18 }
 local GREEN = { 0.55, 0.78, 0.42 }
 local RED   = { 0.80, 0.34, 0.30 }
 
-local SCHEMA = 3
+local ICON = "Interface\\Icons\\INV_Misc_Dice_02"
+
+local SCHEMA = 4
 local RUNNER_EVERY = 6
 
 ---------------------------------------------------------------------
@@ -200,6 +202,7 @@ local DEFAULTS = {
     gold = 500, peak = 500, runs = 0, crowns = 0, bestRung = 1,
     wins = 0, losses = 0, debt = 0, loanUsed = false, lastSeen = 0,
     ended = false, lastCrowns = 0, stake = 0, forfeits = 0,
+    seenWelcome = false, minimapAngle = 220,
 }
 
 local function InitDB()
@@ -218,6 +221,7 @@ local function InitDB()
     DB.peak = max(DB.gold, floor(tonumber(DB.peak) or 0))
     DB.crowns = max(0, floor(tonumber(DB.crowns) or 0))
     DB.stake = max(0, floor(tonumber(DB.stake) or 0))
+    DB.minimapAngle = tonumber(DB.minimapAngle) or 220
     DB.schema = SCHEMA
 end
 
@@ -613,10 +617,14 @@ end
 
 ---------------------------------------------------------------------
 -- ui
+-- Every function the anchors below call is forward-declared here first.
+-- Lua binds upvalues when the chunk compiles, so a name used above its own
+-- `local function` line would quietly become a global lookup.
 ---------------------------------------------------------------------
-local frame, prestigeFrame
+local frame, prestigeFrame, welcomeFrame, minimapBtn
 local W = { affix = {}, log = {}, shop = {}, prestige = {} }
 local AdjustWager, SelectRung, DoRoll, StartNewRunUI
+local Toggle, ShowWelcome, CreateMinimap
 
 ns.selectedRung = 1
 ns.wager = 50
@@ -658,6 +666,15 @@ local function Panel(parent, w, h, borderColor)
     return f
 end
 
+-- the tour copy: five lines, each sized to sit in one slot at 11pt
+local TOUR = {
+    "A deathroll opens at 1-100. You trade rolls inside a shrinking range, and whoever rolls a 1 pays the pot.",
+    "Pick a target with the < > arrows. The tags are their edge, or their flaw. Rungs 1-5 have none.",
+    "Set the stake, then press ROLL. The stake leaves your purse the moment the hand starts.",
+    "Shift-click ROLL to step one roll at a time instead of letting the ticker run.",
+    "Between hands, buy power-ups. Go broke and the table takes you: Bone Crowns buy permanent upgrades.",
+}
+
 local function Build()
     frame = CreateFrame("Frame", "DeathrollBaronFrame", UIParent)
     frame:SetSize(400, 630)
@@ -684,6 +701,10 @@ local function Build()
 
     local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", -3, -3)
+
+    -- reopens the tour; the splash itself only auto-shows once
+    W.help = Btn(frame, "?", 18, 18, 11, function() ShowWelcome() end)
+    W.help:SetPoint("TOPRIGHT", -38, -8)
 
     W.gold = FS(frame, GOLD, 22)
     W.gold:SetPoint("TOPLEFT", 16, -38)
@@ -818,6 +839,112 @@ local function Build()
     W.pAgain:SetPoint("BOTTOM", 0, 18)
 
     prestigeFrame:Hide()
+
+    -- the tour: shown once, then reachable from the ? button and /drb help
+    welcomeFrame = Panel(UIParent, 380, 340, GOLD)
+    welcomeFrame:SetPoint("CENTER")
+    welcomeFrame:SetFrameStrata("DIALOG")
+
+    local wtitle = FS(welcomeFrame, GOLD, 16)
+    wtitle:SetPoint("TOP", 0, -14)
+    wtitle:SetText("DEATHROLL BARON")
+
+    local wsub = FS(welcomeFrame, DIM, 11)
+    wsub:SetPoint("TOP", 0, -34)
+    wsub:SetText("the whole game, in five lines")
+
+    for i, text in ipairs(TOUR) do
+        local fs = FS(welcomeFrame, BONE, 11)
+        fs:SetPoint("TOPLEFT", 22, -54 - (i - 1) * 40)
+        fs:SetWidth(336)
+        fs:SetJustifyH("LEFT")
+        fs:SetText(text)
+    end
+
+    W.wGo = Btn(welcomeFrame, "Sit down", 180, 28, 12, function()
+        DB.seenWelcome = true
+        welcomeFrame:Hide()
+    end)
+    W.wGo:SetPoint("BOTTOM", 0, 16)
+
+    local wclose = CreateFrame("Button", nil, welcomeFrame, "UIPanelCloseButton")
+    wclose:SetPoint("TOPRIGHT", -3, -3)
+    wclose:SetScript("OnClick", function()
+        DB.seenWelcome = true
+        welcomeFrame:Hide()
+    end)
+
+    welcomeFrame:Hide()
+end
+
+ShowWelcome = function()
+    if not welcomeFrame then return end
+    welcomeFrame:Show()
+end
+
+-- minimap button, hand-rolled: 32pt icon, drag it around the ring, angle saved
+local function PlaceMinimapButton()
+    if not minimapBtn then return end
+    local angle = math.rad(DB.minimapAngle or 220)
+    local radius = (Minimap:GetWidth() or 140) / 2 + 5
+    minimapBtn:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * radius, math.sin(angle) * radius)
+end
+
+CreateMinimap = function()
+    if minimapBtn or not Minimap then return end
+
+    local b = CreateFrame("Button", "DeathrollBaronMinimapButton", Minimap)
+    b:SetSize(32, 32)
+    b:SetFrameStrata("MEDIUM")
+    b:SetClampedToScreen(true)
+    b:RegisterForDrag("LeftButton")
+
+    local bg = b:CreateTexture(nil, "BACKGROUND")
+    bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+    bg:SetSize(53, 53)
+    bg:SetPoint("CENTER")
+
+    local icon = b:CreateTexture(nil, "BACKGROUND", nil, 1)
+    icon:SetTexture(ICON)
+    icon:SetSize(20, 20)
+    icon:SetPoint("CENTER")
+
+    local border = b:CreateTexture(nil, "OVERLAY")
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    border:SetSize(54, 54)
+    border:SetPoint("TOPLEFT")
+
+    b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
+
+    b:SetScript("OnClick", function() Toggle() end)
+
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:AddLine("Deathroll Baron", GOLD[1], GOLD[2], GOLD[3])
+        GameTooltip:AddLine("Click to open the table.", 1, 1, 1)
+        GameTooltip:AddLine("Drag around the minimap to move it.", DIM[1], DIM[2], DIM[3])
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- rotate around the ring while dragged, and remember the angle
+    b:SetScript("OnDragStart", function(self)
+        self:SetScript("OnUpdate", function()
+            local mx, my = Minimap:GetCenter()
+            if not mx then return end
+            local scale = Minimap:GetEffectiveScale()
+            local cx, cy = GetCursorPosition()
+            cx, cy = cx / scale, cy / scale
+            DB.minimapAngle = math.deg(math.atan2(cy - my, cx - mx))
+            PlaceMinimapButton()
+        end)
+    end)
+    b:SetScript("OnDragStop", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+
+    minimapBtn = b
+    PlaceMinimapButton()
 end
 
 function ns.Refresh()
@@ -1041,6 +1168,7 @@ ev:SetScript("OnEvent", function(_, event, arg1)
         ns.selectedRung = DB.bestRung
         ns.wager = NPCS[DB.bestRung][6]
         Build()
+        CreateMinimap()
         -- A stake still on the table at login means the client was reloaded or
         -- killed mid-match. The house keeps it and the hand counts as a loss,
         -- so bailing out of a bad opening roll is never free.
@@ -1058,6 +1186,7 @@ ev:SetScript("OnEvent", function(_, event, arg1)
         end
         ns.Refresh()
         if DB.ended then ns.ShowPrestige(DB.lastCrowns) end
+        if not DB.seenWelcome then ShowWelcome() end
     elseif event == "PLAYER_LOGOUT" then
         if DB then
             DB.lastSeen = time()
@@ -1088,7 +1217,7 @@ end)
 ---------------------------------------------------------------------
 -- entry points
 ---------------------------------------------------------------------
-local function Toggle()
+Toggle = function()
     if not frame then return end
     if frame:IsShown() then
         frame:Hide()
@@ -1107,6 +1236,10 @@ SLASH_DEATHROLLBARON1 = "/drb"
 SLASH_DEATHROLLBARON2 = "/baron"
 SlashCmdList["DEATHROLLBARON"] = function(msg)
     msg = (msg or ""):lower()
+    if msg == "help" then
+        ShowWelcome()
+        return
+    end
     if msg == "reset" then
         DB.powers = {}
         DB.bestRung = 1
