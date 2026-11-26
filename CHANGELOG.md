@@ -10,6 +10,34 @@ versioning is [SemVer](https://semver.org/).
 - Wager slider to replace the stepper (needs a thumb texture).
 - Challenge your current target; addon-vs-addon multiplayer.
 
+## [0.0.12] — 2026-11-26
+
+One pause, one number, one reel that lands.
+
+### Changed
+
+- **Auto-spin waits one adaptive pause, not a hold plus a fixed gap.** The ceremony still spends
+  its 0.55s on the one, and the fixed 1.1s deal delay is gone. The breath after the headline is
+  0.28s after a win and 0.42s after a loss, scaled by `J.PaceK` (about 0.79-1.01s in total), so a
+  fast hand does not machine-gun and a slow one is not slowed further. The next deal still never
+  lands inside the ceremony.
+- **The odds bar carries the hand's EV.** `57% YOU . pays 2g 40s . risk 50s . EV +37c` is
+  `chance x (payout - stake) - (1 - chance) x loss`. It uses the same `WinChance` that draws the
+  bar, and it shows the selected rung while idle, so a rung can be judged before the auto-spin
+  leaves it.
+
+### Fixed
+
+- **The reel lands at Fast Hands speeds.** A reel lives 0.16-0.34s, but the ticker runs at
+  0.08-0.18s with Fast Hands and the opening curve, so the next number used to arrive while the
+  reel was still spinning and the real number was never on screen. Reel life is now capped just
+  under the gap the ticker actually scheduled, with a 0.05s floor.
+
+### Note
+
+Schema is still 5. `OddsUpTo` and `WinChance` are untouched; the EV line only reads them.
+Still never played in game - syntax-checked by CI only.
+
 ## [0.0.11] — 2026-11-26
 
 The table never waits for you to press anything twice.

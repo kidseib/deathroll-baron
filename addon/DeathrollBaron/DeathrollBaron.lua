@@ -1759,11 +1759,15 @@ function J.Odds()
     local gross = floor(wager * cfg.mult)
     local payout = max(0, min(gross - floor(gross * cfg.winTax), cfg.purse))
     local risk = floor(wager * cfg.lossMult * cfg.lossFrac)
+    -- what a hand is worth from here: a win is the payout net of the
+    -- stake that already left the purse, a loss is the fraction paid back.
+    local ev = chance * (payout - wager) - (1 - chance) * risk
     local col = GOLD
     if pct >= 56 then col = GREEN elseif pct <= 44 then col = RED end
     J.bar.fill:SetWidth(max(1, floor(382 * chance)))
     J.bar.fill:SetColorTexture(col[1], col[2], col[3], 0.55 + 0.25 * (0.5 + 0.5 * math.sin(GetTime() * 3)))
-    J.bar.text:SetText(("%d%% YOU   .   pays %s   .   risk %s"):format(pct, Money(payout), Money(risk)))
+    J.bar.text:SetText(("%d%% YOU  .  pays %s  .  risk %s  .  EV %s"):format(
+        pct, Money(payout), Money(risk), Signed(ev)))
     J.bar.text:SetTextColor(col[1], col[2], col[3])
 end
 
@@ -1869,6 +1873,15 @@ function J.ReelStart(side, value)
         span = J.span or s.cfg.ceiling,
         life = 0.16 + 0.18 * (1 - s.max / s.cfg.ceiling),
     }
+    -- Fast Hands can make a tick shorter than a reel, and a reel that is
+    -- still spinning when the next number lands never shows a number at
+    -- all. Cap its life under the gap the ticker actually scheduled, timed
+    -- from the range the gap was measured on (J.span, the previous number).
+    if not s.manual and s.paceBase then
+        local gap = s.cfg.speed
+        if J.span then gap = min(gap, s.paceBase * J.PaceK(J.span, s.cfg.ceiling)) end
+        J.reel.life = max(0.05, min(J.reel.life, gap * 0.75))
+    end
     J.span = s.max
     J.Roll(side)
 end
@@ -1971,12 +1984,22 @@ end)
 ---------------------------------------------------------------------
 -- auto-spin: the table keeps dealing
 -- Session-only on purpose: it is off at login and it stops when the
--- frame closes, so it can never spend a purse unattended. The delay is
--- longer than the ceremony's hold, so a reveal is never cut short.
+-- frame closes, so it can never spend a purse unattended. The pause
+-- contains the ceremony's hold, so the reveal is still never cut short.
 ---------------------------------------------------------------------
 ns.auto = false
 ns.autoT = 0
-ns.autoDelay = 1.1
+
+-- One pause, not a hold plus a fixed gap. The ceremony already spends
+-- HOLD on the one; what is left is a breath sized by the result and by
+-- how fast the hand ran, so a fast hand cannot machine-gun and a slow
+-- one is not slowed further.
+function ns.AutoPause(s)
+    local breath = (s and s.result == "win") and 0.28 or 0.42
+    local pace = 1
+    if s and s.cfg then pace = J.PaceK(s.max, s.cfg.ceiling) end
+    return HOLD + breath * (1.30 - 0.30 * pace)
+end
 
 -- Runs on the existing driver, one line after J.Step. StartMatch is the
 -- wallet's own guard: it refuses a finished run and any stake the purse
@@ -1997,7 +2020,7 @@ function ns.AutoTick(el)
         return
     end
     ns.autoT = ns.autoT + el
-    if ns.autoT < ns.autoDelay then return end
+    if ns.autoT < ns.AutoPause(s) then return end
     ns.autoT = 0
     if not StartMatch(ns.selectedRung, ns.wager, false) then ns.auto = false end
     ns.Refresh()
