@@ -1991,14 +1991,16 @@ ns.auto = false
 ns.autoT = 0
 
 -- One pause, not a hold plus a fixed gap. The ceremony already spends
--- HOLD on the one; what is left is a breath sized by the result and by
--- how fast the hand ran, so a fast hand cannot machine-gun and a slow
--- one is not slowed further.
+-- HOLD on the one; what is left is a breath sized by the result, and
+-- shortened by Fast Hands so the ticker's speed is not eaten by it.
 function ns.AutoPause(s)
     local breath = (s and s.result == "win") and 0.28 or 0.42
-    local pace = 1
-    if s and s.cfg then pace = J.PaceK(s.max, s.cfg.ceiling) end
-    return HOLD + breath * (1.30 - 0.30 * pace)
+    -- Fast Hands shortens every tick, so the breath shrinks with the base
+    -- speed: a beat, not a wait, and a fast hand keeps its pace.
+    local fast = 1
+    if s and s.paceBase and s.paceBase > 0 then fast = ROLL_SPEED / s.paceBase end
+    breath = breath * max(0.70, 1 - 0.15 * (fast - 1))
+    return HOLD + breath
 end
 
 -- Runs on the existing driver, one line after J.Step. StartMatch is the

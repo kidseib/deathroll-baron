@@ -18,9 +18,9 @@ One pause, one number, one reel that lands.
 
 - **Auto-spin waits one adaptive pause, not a hold plus a fixed gap.** The ceremony still spends
   its 0.55s on the one, and the fixed 1.1s deal delay is gone. The breath after the headline is
-  0.28s after a win and 0.42s after a loss, scaled by `J.PaceK` (about 0.79-1.01s in total), so a
-  fast hand does not machine-gun and a slow one is not slowed further. The next deal still never
-  lands inside the ceremony.
+  0.28s after a win and 0.42s after a loss, shrinking with `Fast Hands` (about 0.78-0.97s in
+  total), so the pause stays a beat instead of becoming the bulk of a fast hand. The next deal
+  still never lands inside the ceremony.
 - **The odds bar carries the hand's EV.** `57% YOU . pays 2g 40s . risk 50s . EV +37c` is
   `chance x (payout - stake) - (1 - chance) x loss`. It uses the same `WinChance` that draws the
   bar, and it shows the selected rung while idle, so a rung can be judged before the auto-spin
