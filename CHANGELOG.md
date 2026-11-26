@@ -12,8 +12,8 @@ versioning is [SemVer](https://semver.org/).
 ## [0.0.3] — 2026-11-26
 
 0.0.1 and 0.0.2 both told you to hold Shift to step the deathroll by hand. No such code existed —
-the claim was documentation for a feature that was never written. This release either makes the
-documentation true or deletes it, and it makes it true.
+the claim was documentation for a feature that was never written. This release makes the
+documentation true.
 
 ### Added
 
@@ -22,15 +22,24 @@ documentation true or deletes it, and it makes it true.
   - no match, **Shift**-click — start a match in manual mode and roll once immediately;
   - manual match, any click — advance exactly one roll;
   - auto match, **Shift**-click — take the ticker off auto and step one roll.
-- A hint line under the ROLL button that names the current mode, so the control is never a secret:
-  `click to auto-roll . shift-click to roll it yourself`, then `shift-click to take over`, then
-  `manual: one roll per click, shift or not`. The button label changes with it.
+- A hint line under the ROLL button that names the current mode, so the control is never a secret.
+  The button label changes with it (`ROLL 500c` / `ROLLING` / `ROLL ONE (click)`).
 
 ### Fixed
 
 - ROLL was disabled during any live match (`SetEnabled(not live)`), which would have made manual
   stepping impossible even if it had been wired up. It is now always enabled and `DoRoll` decides.
-- `runnerClock` was an accidental global; it is a file-scoped local now.
+- The hint line initially sat 4px into the MIN / HALF / ALL IN row; it now has its own band under the
+  button, and the shop grid moved down 6px to make room.
+- **The runner's second-counter was an accidental global.** It was written as `runnerClock = ...`
+  with no `local`, so every tick leaked into `_G` and two addons using the same name would have
+  fought over it. It is now a file-local declared beside `runnerAccum`.
+- **That declaration had to move.** `runnerAccum` and `runnerClock` were declared *below*
+  `StartNewRun` in the file; a reset written inside `StartNewRun` would have created a fresh global
+  instead of touching the local, because Lua resolves upvalues at compile time. Both are now declared
+  above the match engine, so `StartNewRun` can reset them for real.
+- The runner's counters now reset on `StartNewRun` and on `/drb reset`, so a new run cannot inherit a
+  partly-elapsed six-second tick from the previous one.
 
 ### Note
 

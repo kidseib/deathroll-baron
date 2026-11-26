@@ -343,9 +343,14 @@ end
 
 ---------------------------------------------------------------------
 -- match engine
+-- runnerAccum / runnerClock live up here on purpose: StartNewRun resets
+-- them, and Lua resolves upvalues at compile time, so a local declared
+-- below StartNewRun would be invisible to it and the assignment would
+-- silently create a global instead.
 ---------------------------------------------------------------------
 local state
 local stateToken = 0
+local runnerAccum, runnerClock = 0, 0
 local GameOver, StartNewRun, BustCheck
 
 local function LogLine(s, kind, text)
@@ -525,6 +530,8 @@ StartNewRun = function()
     DB.ended, DB.lastCrowns = false, 0
     state = nil
     stateToken = stateToken + 1
+    -- a new run starts the Runner's clock from zero
+    runnerAccum, runnerClock = 0, 0
     StartRun()
     ns.selectedRung = 1
     ns.wager = NPCS[1][6]
@@ -541,9 +548,6 @@ end
 ---------------------------------------------------------------------
 -- the runner: idle and offline income
 ---------------------------------------------------------------------
-local runnerAccum = 0
-local runnerSeconds = 0
-
 local function RunnerStep()
     if (DB.powers.runner or 0) < 1 then return end
     if DB.ended then return end
@@ -1025,12 +1029,12 @@ clock:SetScript("OnUpdate", function(_, elapsed)
     if runnerAccum < 1 then return end
     runnerAccum = 0
     if DB.ended or (DB.powers.runner or 0) < 1 then
-        runnerSeconds = 0
+        runnerClock = 0
         return
     end
-    runnerSeconds = runnerSeconds + 1
-    if runnerSeconds >= RUNNER_EVERY then
-        runnerSeconds = 0
+    runnerClock = runnerClock + 1
+    if runnerClock >= RUNNER_EVERY then
+        runnerClock = 0
         RunnerStep()
         if frame and frame:IsShown() then ns.Refresh() end
     end
@@ -1068,6 +1072,7 @@ SlashCmdList["DEATHROLLBARON"] = function(msg)
         DB.wins, DB.losses = 0, 0
         state = nil
         stateToken = stateToken + 1
+        runnerAccum, runnerClock = 0, 0
         StartRun()
         ns.selectedRung = 1
         ns.wager = NPCS[1][6]
