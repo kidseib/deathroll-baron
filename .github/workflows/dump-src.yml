@@ -1,0 +1,16 @@
+name: dump-src
+on:
+  workflow_dispatch:
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: tail-of-file
+        run: |
+          f=addon/DeathrollBaron/DeathrollBaron.lua
+          wc -l -c "$f"
+          s=$(grep -n 'juice: quick-fire layer' "$f" | head -1 | cut -d: -f1)
+          echo "juice starts at line $s"
+          awk -v s="$s" 'NR>=s-8 {printf "%5d| %s\n", NR, $0}' "$f"
