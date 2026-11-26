@@ -10,6 +10,23 @@ versioning is [SemVer](https://semver.org/).
 - Wager slider to replace the stepper (needs a thumb texture).
 - Challenge your current target; addon-vs-addon multiplayer.
 
+## [0.0.9] - 2026-11-26
+
+A layout fix. No rule, no number, no save format touched.
+
+### Fixed
+
+- **The odds bar was sitting on the range line.** Its band started at -264 while the range line
+  above it ends around -266, so the top of the fill and its label ran under the turn text. The bar
+  is now 16pt tall at -269: 3pt under the range line, 3pt above the first log line at -288. Its label
+  drops to 11pt so it fits the shorter bar.
+- The log block stays at -288. It was already clear of the bar, and nudging it down would push its
+  sixth line further into the wager row at -368.
+
+### Note
+
+The frame stays 400x630. Only the appended juice module, the version line and this file moved;
+the odds solver, the match engine and schema 5 are untouched.
 ## [0.0.8] - 2026-11-26
 The feel pass: the table stops being a spreadsheet and starts being a slot machine.
 Nothing about the odds changed - only how loud they are.

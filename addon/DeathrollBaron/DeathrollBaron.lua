@@ -1558,9 +1558,11 @@ function J.Init()
     J.parts, J.texts = {}, {}
 
     -- the odds bar: the one number the whole game hangs on
+    -- range line ends about -266, bar runs -269..-285, log starts -288:
+    -- 3pt clear above and below. 18pt at -264 touched the range line.
     local bar = CreateFrame("Frame", nil, frame)
-    bar:SetSize(384, 18)
-    bar:SetPoint("TOP", frame, "TOP", 0, -264)
+    bar:SetSize(384, 16)
+    bar:SetPoint("TOP", frame, "TOP", 0, -269)
     local bg = bar:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.10, 0.09, 0.07, 0.96)
@@ -1573,7 +1575,7 @@ function J.Init()
     mid:SetSize(1, 18)
     mid:SetPoint("CENTER")
     mid:SetColorTexture(1, 1, 1, 0.16)
-    bar.text = FS(bar, GOLD, 12)
+    bar.text = FS(bar, GOLD, 11)
     bar.text:SetPoint("CENTER")
     J.bar = bar
 
