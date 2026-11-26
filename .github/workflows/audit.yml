@@ -1,0 +1,25 @@
+name: Audit file
+
+# One-shot read-only audit of the addon source. Prints nothing secret; deletes itself after.
+on:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit
+        run: |
+          f=addon/DeathrollBaron/DeathrollBaron.lua
+          echo "== size =="
+          wc -c -l "$f"
+          echo "== definitions, in file order =="
+          grep -nE "^(local )?function [A-Za-z_.]+|^[A-Za-z_.]+ = function|^ns\.[A-Za-z]+ = function|^SlashCmdList" "$f"
+          echo "== symbols =="
+          for s in NPCS AFFIXES AFFIX_BY_ID POWERS PRESTIGE DEFAULTS InitDB AffixCount AffixTier StartRun BuildConfig PowerCost BuyPower PrestigeCost BuyPrestige LogLine DrawRoll FinishMatch StepMatch StartMatch SimulateMatch OddsUpTo WinChance GameOver BustCheck StartNewRun Borrow RunnerStep ApplyOffline FS Btn Panel Flash Pop Build ShowWelcome PlaceMinimapButton CreateMinimap Tension Refresh ShowPrestige SelectRung AdjustWager DoRoll StartNewRunUI Toggle; do
+            grep -q "$s" "$f" || echo "MISSING $s"
+          done
+          echo "(end of symbol check)"
+          echo "== last 25 lines =="
+          tail -n 25 "$f"
