@@ -1,0 +1,12 @@
+## Interface: 16001
+## Title: Deathroll Baron
+## Notes: A deathroll incremental. Gamble your bankroll against 30 real Azeroth NPCs.
+## Author: ErrorSeiB
+## Version: 0.1.0
+## SavedVariables: DeathrollBaronDB
+## IconTexture: Interface\Icons\INV_Misc_Dice_02
+## AddonCompartmentFunc: DeathrollBaron_CompartmentClick
+## AddonCompartmentFuncOnEnter: DeathrollBaron_CompartmentEnter
+## AddonCompartmentFuncOnLeave: DeathrollBaron_CompartmentLeave
+
+DeathrollBaron.lua
