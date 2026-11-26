@@ -1,6 +1,11 @@
 name: dump-src
 on:
   workflow_dispatch:
+    inputs:
+      start:
+        description: first line to print
+        default: "1795"
+        required: false
 
 jobs:
   dump:
@@ -10,7 +15,6 @@ jobs:
       - name: tail-of-file
         run: |
           f=addon/DeathrollBaron/DeathrollBaron.lua
-          wc -l -c "$f"
-          s=$(grep -n 'juice: quick-fire layer' "$f" | head -1 | cut -d: -f1)
-          echo "juice starts at line $s"
-          awk -v s="$s" 'NR>=s-8 {printf "%5d| %s\n", NR, $0}' "$f"
+          s="${{ github.event.inputs.start }}"
+          echo "printing from line $s"
+          awk -v s="$s" 'NR>=s {printf "%5d| %s\n", NR, $0}' "$f"
