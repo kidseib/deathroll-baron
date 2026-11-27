@@ -25,8 +25,7 @@ jobs:
           grep -q 'function J.DealPending()' addon/DeathrollBaron/DeathrollBaron.lua
           grep -q 'if not J.PotSeated() then' addon/DeathrollBaron/DeathrollBaron.lua
           grep -q 'J.DealPending()' addon/DeathrollBaron/DeathrollBaron.lua
-          ! grep -q 'J.PotSlide(won)
-' addon/DeathrollBaron/DeathrollBaron.lua
+          ! grep -qF 'J.PotSlide(won)' addon/DeathrollBaron/DeathrollBaron.lua
       - name: Parse Lua
         run: luac5.1 -p addon/DeathrollBaron/DeathrollBaron.lua
       - name: Commit the result

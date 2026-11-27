@@ -250,21 +250,22 @@ swap(
 
 # 10. sanity checks
 checks = {
-    "POT_LEAD": "local POT_LEAD = 0.20",
-    "POT_SLIDE": "local POT_SLIDE = 0.42",
-    "home branch": "elseif a.home then",
-    "return": "function J.PotReturn()",
-    "seated": "function J.PotSeated()",
-    "pending": "function J.DealPending()",
-    "pending token": "if p.token ~= stateToken then",
-    "manual gate": "ns.pendingDeal = { manual = manual, token = stateToken }",
-    "auto gate": "if not J.PotSeated() then",
-    "driver": "J.DealPending()",
+    "POT_LEAD": ("local POT_LEAD = 0.20", 1),
+    "POT_SLIDE": ("local POT_SLIDE = 0.42", 1),
+    "home alpha": ("J.potA = (a.a0 or 1) + (0.84 - (a.a0 or 1)) * k", 1),
+    "home arrival": ("J.potX, J.potY = 0, 0", 1),
+    "return": ("function J.PotReturn()", 1),
+    "seated": ("function J.PotSeated()", 1),
+    "pending": ("function J.DealPending()", 1),
+    "pending token": ("if p.token ~= stateToken then", 1),
+    "manual gate": ("ns.pendingDeal = { manual = manual, token = stateToken }", 1),
+    "auto gate": ("ns.pendingDeal = nil\n    ns.autoT = 0", 1),
+    "driver": ("J.DealPending()", 1),
 }
-for name, needle in checks.items():
+for name, (needle, want) in checks.items():
     n = src.count(needle)
-    if n != 1:
-        raise SystemExit("%s: %d occurrences" % (name, n))
+    if n != want:
+        raise SystemExit("%s: %d occurrences (want %d)" % (name, n, want))
     print("ok check", name)
 
 if "J.PotSlide(won)\n    J.hold" in src:
