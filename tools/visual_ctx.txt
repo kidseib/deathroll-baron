@@ -1,877 +1,105 @@
-DeathrollBaron.lua UI context, 2135 lines total
+DeathrollBaron.lua bar/shop context, 2135 lines total
 
-== J.Odds NOT FOUND ==
+== Money (lines 47-71) ==
+  47| local function Money(c)
+  48|     c = floor((c or 0) + 0.5)
+  49|     if c < 0 then return "-" .. Money(-c) end
+  50|     local g = floor(c / 10000)
+  51|     local s = floor((c % 10000) / 100)
+  52|     local cu = c % 100
+  53|     if g > 0 then return Comma(g) .. "g " .. s .. "s" end
+  54|     if s > 0 then return s .. "s " .. cu .. "c" end
+  55|     return cu .. "c"
+  56| end
+  57| 
+  58| local function Signed(c)
+  59|     c = floor((c or 0) + 0.5)
+  60|     if c < 0 then return "-" .. Money(-c) end
+  61|     return "+" .. Money(c)
+  62| end
+  63| 
+  64| local function Pct(v)
+  65|     return floor(v * 100 + 0.5) .. "%"
+  66| end
+  67| 
+  68| ---------------------------------------------------------------------
+  69| -- the ladder: name, zone, level, opening ceiling, min wager, purse
+  70| ---------------------------------------------------------------------
+  71| local NPCS = {
 
-== top (lines 1-45) ==
-   1| --[[ Deathroll Baron
-   2|      A deathroll incremental for World of Warcraft: Forever (interface 16001).
-   3|      One file, no libraries. ]]
-   4| 
-   5| local ADDON, ns = ...
-   6| local floor, max, min, random = math.floor, math.max, math.min, math.random
-   7| 
-   8| local GOLD  = { 0.79, 0.64, 0.15 }
-   9| local BONE  = { 0.87, 0.84, 0.77 }
-  10| local DIM   = { 0.55, 0.52, 0.46 }
-  11| local BLOOD = { 0.72, 0.20, 0.18 }
-  12| local GREEN = { 0.55, 0.78, 0.42 }
-  13| local RED   = { 0.80, 0.34, 0.30 }
-  14| 
-  15| local ICON = "Interface\\Icons\\INV_Misc_Dice_02"
-  16| 
-  17| local SCHEMA = 5
-  18| 
-  19| -- Desperate is the one enemy modifier the odds solver has to know
-  20| -- about by name: it lifts their luck only once the range is small, so
-  21| -- no single enemy bias can describe the table. StepMatch and OddsUpTo
-  22| -- both read these constants, so the two cannot disagree again.
-  23| local DESPERATE_FROM = 20
-  24| local DESPERATE_LUCK = 0.30
-  25| local RUNNER_EVERY = 6
-  26| 
-  27| -- board animation timings
-  28| local FLASH_TIME = 0.42
-  29| local POP_TIME = 0.12
-  30| local ROLL_SPEED = 0.26
-  31| 
-  32| -- The opening edge: rung 1 is meant to be winnable, and the edge bleeds away.
-  33| -- Rolling LOW is the strong play in a deathroll, so a player "luck" of 0.55
-  34| -- means 55% of the time you take the lower of two rolls.
-  35| local EDGE_BASE = 0.55
-  36| local EDGE_STEP = 0.025
-  37| 
-  38| ---------------------------------------------------------------------
-  39| -- formatting
-  40| ---------------------------------------------------------------------
-  41| local function Comma(n)
-  42|     local s = tostring(floor(n))
-  43|     local out = (s:reverse():gsub("(%d%d%d)", "%1,")):reverse()
-  44|     return (out:gsub("^,", ""))
-  45| end
+== POWERS (lines 183-252) ==
+ 183| local POWERS = {
+ 184|     { id = "dice",   name = "Weighted Dice",  base = 200,  max = 10,
+ 185|       desc = "+8% chance to keep your lower roll, per rank",
+ 186|       apply = function(c, r) if r > 0 then c.playerLuck = c.playerLuck + 0.08 * r end end },
+ 187|     { id = "sand",   name = "Pocket Sand",    base = 250,  max = 8,
+ 188|       desc = "Their luck -8% per rank: fewer low rolls for them",
+ 189|       apply = function(c, r) if r > 0 then c.enemyLuck = c.enemyLuck - 0.08 * r end end },
+ 190|     { id = "marks",  name = "Marked Cards",   base = 300,  max = 10,
+ 191|       desc = "+12% payout per rank",
+ 192|       apply = function(c, r) if r > 0 then c.mult = c.mult + 0.12 * r end end },
+ 193|     { id = "hands",  name = "Fast Hands",     base = 150,  max = 2,
+ 194|       desc = "Roll ticker far faster",
+ 195|       apply = function(c, r) c.speed = ROLL_SPEED / (1 + 0.6 * r) end },
+ 196|     { id = "trick",  name = "Cheap Trick",    base = 800,  max = 1,
+ 197|       desc = "The enemy opens every match",
+ 198|       apply = function(c, r) if r > 0 then c.theyOpen = true end end },
+ 199|     { id = "cut",    name = "Banker's Cut",   base = 900,  max = 3,
+ 200|       desc = "Lose only 60/45/35% of the wager",
+ 201|       apply = function(c, r) if r > 0 then c.lossFrac = ({ 0.60, 0.45, 0.35 })[r] or 0.35 end end },
+ 202|     { id = "blood",  name = "Blood Pact",     base = 1200, max = 3,
+ 203|       desc = "+1 Insurance charge per match",
+ 204|       apply = function(c, r) c.insurance = c.insurance + r end },
+ 205|     { id = "runner", name = "The Runner",     base = 2500, max = 1,
+ 206|       desc = "Auto-plays matches, and earns offline" },
+ 207| }
+ 208| 
+ 209| local PRESTIGE = {
+ 210|     { id = "money",     name = "Old Money",      per = "+250 starting bankroll", cost = 2 },
+ 211|     { id = "bloodline", name = "Bloodline",      per = "+2% base Luck",          cost = 3 },
+ 212|     { id = "inside",    name = "Inside Man",     per = "-5% power-up cost",      cost = 4 },
+ 213|     { id = "inherit",   name = "Inherited Dice", per = "keep one power-up",      cost = 10, single = true },
+ 214| }
+ 215| 
+ 216| ---------------------------------------------------------------------
+ 217| -- saved variables
+ 218| ---------------------------------------------------------------------
+ 219| local DB
+ 220| 
+ 221| local DEFAULTS = {
+ 222|     gold = 500, peak = 500, runs = 0, crowns = 0, bestRung = 1,
+ 223|     wins = 0, losses = 0, debt = 0, loanUsed = false, lastSeen = 0,
+ 224|     ended = false, lastCrowns = 0, stake = 0, forfeits = 0,
+ 225|     seenWelcome = false, minimapAngle = 220, streak = 0,
+ 226| }
+ 227| 
+ 228| local function InitDB()
+ 229|     if type(DeathrollBaronDB) ~= "table" then DeathrollBaronDB = {} end
+ 230|     DB = DeathrollBaronDB
+ 231|     for k, v in pairs(DEFAULTS) do
+ 232|         if DB[k] == nil then DB[k] = v end
+ 233|     end
+ 234|     if type(DB.powers) ~= "table" then DB.powers = {} end
+ 235|     if type(DB.prestige) ~= "table" then DB.prestige = {} end
+ 236|     if type(DB.rolled) ~= "table" then DB.rolled = {} end
+ 237| 
+ 238|     -- migrate anything a previous version could have written
+ 239|     DB.bestRung = min(#NPCS, max(1, floor(tonumber(DB.bestRung) or 1)))
+ 240|     DB.gold = max(0, floor(tonumber(DB.gold) or 0))
+ 241|     DB.peak = max(DB.gold, floor(tonumber(DB.peak) or 0))
+ 242|     DB.crowns = max(0, floor(tonumber(DB.crowns) or 0))
+ 243|     DB.stake = max(0, floor(tonumber(DB.stake) or 0))
+ 244|     DB.streak = max(0, floor(tonumber(DB.streak) or 0))
+ 245|     DB.minimapAngle = tonumber(DB.minimapAngle) or 220
+ 246|     DB.schema = SCHEMA
+ 247| end
+ 248| 
+ 249| ---------------------------------------------------------------------
+ 250| -- run seeding
+ 251| ---------------------------------------------------------------------
+ 252| local function AffixCount(rung)
 
-== cost+label (lines 338-392) ==
- 338| local function PowerCost(p)
- 339|     local r = DB.powers[p.id] or 0
- 340|     local cost = p.base * (1.75 ^ r)
- 341|     cost = cost * (1 - 0.05 * (DB.prestige.inside or 0))
- 342|     return max(5, floor(floor(cost / 5 + 0.5) * 5))
- 343| end
- 344| 
- 345| -- one label for every shop button: Build and Refresh both call it, so the
- 346| -- rank and the price can never drift apart
- 347| local function PowerLabel(p, r, cost)
- 348|     if r >= p.max then return p.name .. "  maxed" end
- 349|     return ("%s  %d/%d   %s"):format(p.name, r, p.max, Money(cost or PowerCost(p)))
- 350| end
- 351| 
- 352| local function BuyPower(id)
- 353|     local p
- 354|     for _, q in ipairs(POWERS) do
- 355|         if q.id == id then p = q end
- 356|     end
- 357|     if not p then return false end
- 358|     local r = DB.powers[id] or 0
- 359|     if r >= p.max then return false end
- 360|     local cost = PowerCost(p)
- 361|     if DB.gold < cost then return false end
- 362|     DB.gold = DB.gold - cost
- 363|     DB.powers[id] = r + 1
- 364|     return true
- 365| end
- 366| 
- 367| local function PrestigeCost(entry)
- 368|     local r = DB.prestige[entry.id] or 0
- 369|     return entry.cost * (r + 1)
- 370| end
- 371| 
- 372| local function BuyPrestige(id)
- 373|     local entry
- 374|     for _, e in ipairs(PRESTIGE) do
- 375|         if e.id == id then entry = e end
- 376|     end
- 377|     if not entry then return false end
- 378|     local r = DB.prestige[id] or 0
- 379|     if entry.single and r >= 1 then return false end
- 380|     local cost = PrestigeCost(entry)
- 381|     if DB.crowns < cost then return false end
- 382|     DB.crowns = DB.crowns - cost
- 383|     DB.prestige[id] = r + 1
- 384|     return true
- 385| end
- 386| 
- 387| ---------------------------------------------------------------------
- 388| -- match engine
- 389| -- runnerAccum / runnerClock live up here on purpose: StartNewRun resets
- 390| -- them, and Lua resolves upvalues at compile time, so a local declared
- 391| -- below StartNewRun would be invisible to it and the assignment would
- 392| -- silently create a global instead.
-
-== helpers / Build / shop loop (lines 744-1155) ==
- 744| local function FS(parent, color, size)
- 745|     local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
- 746|     local path, _, flags = fs:GetFont()
- 747|     if path and size then fs:SetFont(path, size, flags) end
- 748|     if color then fs:SetTextColor(color[1], color[2], color[3]) end
- 749|     return fs
- 750| end
- 751| 
- 752| local function Btn(parent, text, w, h, size, onClick)
- 753|     local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
- 754|     b:SetSize(w, h)
- 755|     b:SetText(text)
- 756|     local fs = b:GetFontString()
- 757|     if fs and size then
- 758|         local path, _, flags = fs:GetFont()
- 759|         if path then fs:SetFont(path, size, flags) end
- 760|     end
- 761|     b:SetScript("OnClick", onClick)
- 762|     return b
- 763| end
- 764| 
- 765| local function Panel(parent, w, h, borderColor)
- 766|     local f = CreateFrame("Frame", nil, parent)
- 767|     f:SetSize(w, h)
- 768|     f:EnableMouse(true)
- 769|     local edge = f:CreateTexture(nil, "BACKGROUND", nil, -8)
- 770|     edge:SetAllPoints()
- 771|     edge:SetColorTexture(borderColor[1], borderColor[2], borderColor[3], 0.85)
- 772|     local bg = f:CreateTexture(nil, "BACKGROUND")
- 773|     bg:SetPoint("TOPLEFT", 2, -2)
- 774|     bg:SetPoint("BOTTOMRIGHT", -2, 2)
- 775|     bg:SetColorTexture(0.07, 0.06, 0.05, 0.97)
- 776|     f.edge = edge
- 777|     return f
- 778| end
- 779| 
- 780| local function CrownLabel(n)
- 781|     n = n or 0
- 782|     if n == 1 then return "1 crown" end
- 783|     return Comma(n) .. " crowns"
- 784| end
- 785| 
- 786| -- the tour copy: five lines, each sized to sit in one slot at 11pt
- 787| local TOUR = {
- 788|     "A deathroll opens at 1-100. You trade rolls inside a shrinking range, and whoever rolls a 1 pays the pot.",
- 789|     "You want the LOW roll: a small number leaves them almost nothing to roll in. High rolls are how you lose.",
- 790|     "Set the stake, then press ROLL. The stake leaves your purse the moment the hand starts.",
- 791|     "Shift-click ROLL to step one roll at a time. The odds bar under the board is your real chance.",
- 792|     "Between hands, buy power-ups. Go broke and the table takes you: Bone Crowns buy permanent upgrades.",
- 793| }
- 794| 
- 795| -- animation state for the roll board
- 796| local flashT, pulsing = 0, false
- 797| local popT, popTarget = 0, nil
- 798| 
- 799| local function BoardAlpha(a)
- 800|     if W.youFlash then W.youFlash:SetAlpha(a) end
- 801|     if W.themFlash then W.themFlash:SetAlpha(a) end
- 802| end
- 803| 
- 804| local function BoardColor(r, g, b)
- 805|     if W.youFlash then W.youFlash:SetColorTexture(r, g, b, 1) end
- 806|     if W.themFlash then W.themFlash:SetColorTexture(r, g, b, 1) end
- 807| end
- 808| 
- 809| -- a winning hand paints the board green, a losing one red, then it fades
- 810| Flash = function(r, g, b)
- 811|     if not W.youFlash then return end
- 812|     pulsing = false
- 813|     flashT = FLASH_TIME
- 814|     BoardColor(r, g, b)
- 815|     BoardAlpha(0.40)
- 816| end
- 817| 
- 818| -- each roll punches its own number so you can see which side just moved
- 819| Pop = function(forPlayer)
- 820|     local fs = forPlayer and W.youNum or W.themNum
- 821|     if not fs then return end
- 822|     popTarget = fs
- 823|     popT = POP_TIME
- 824|     fs:SetAlpha(0.15)
- 825| end
- 826| 
- 827| local function Build()
- 828|     frame = CreateFrame("Frame", "DeathrollBaronFrame", UIParent)
- 829|     frame:SetSize(400, 630)
- 830|     frame:SetPoint("CENTER")
- 831|     frame:SetFrameStrata("DIALOG")
- 832|     frame:EnableMouse(true)
- 833|     frame:SetMovable(true)
- 834|     frame:SetClampedToScreen(true)
- 835|     frame:RegisterForDrag("LeftButton")
- 836|     frame:SetScript("OnDragStart", frame.StartMoving)
- 837|     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
- 838| 
- 839|     local edge = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
- 840|     edge:SetAllPoints()
- 841|     edge:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.55)
- 842|     local bg = frame:CreateTexture(nil, "BACKGROUND")
- 843|     bg:SetPoint("TOPLEFT", 2, -2)
- 844|     bg:SetPoint("BOTTOMRIGHT", -2, 2)
- 845|     bg:SetColorTexture(0.07, 0.06, 0.05, 0.97)
- 846| 
- 847|     W.title = FS(frame, GOLD, 14)
- 848|     W.title:SetPoint("TOP", 0, -12)
- 849|     W.title:SetText("DEATHROLL BARON")
- 850| 
- 851|     local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
- 852|     close:SetPoint("TOPRIGHT", -3, -3)
- 853| 
- 854|     -- reopens the tour; the splash itself only auto-shows once
- 855|     W.help = Btn(frame, "?", 18, 18, 11, function() ShowWelcome() end)
- 856|     W.help:SetPoint("TOPRIGHT", -38, -8)
- 857| 
- 858|     -- crowns are spendable any time, not just when the table takes you
- 859|     W.crowns = Btn(frame, CrownLabel(DB.crowns), 92, 18, 10, function()
- 860|         if ns.ShowPrestige then ns.ShowPrestige(DB.lastCrowns) end
- 861|     end)
- 862|     W.crowns:SetPoint("TOPRIGHT", -38, -36)
- 863|     W.crowns:SetScript("OnEnter", function(self)
- 864|         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
- 865|         GameTooltip:AddLine("Bone Crowns", GOLD[1], GOLD[2], GOLD[3])
- 866|         GameTooltip:AddLine("Earned when the table takes you. Click to spend them on permanent upgrades.", 1, 1, 1, true)
- 867|         GameTooltip:Show()
- 868|     end)
- 869|     W.crowns:SetScript("OnLeave", function() GameTooltip:Hide() end)
- 870| 
- 871|     W.gold = FS(frame, GOLD, 22)
- 872|     W.gold:SetPoint("TOPLEFT", 16, -38)
- 873| 
- 874|     W.sub = FS(frame, DIM, 11)
- 875|     W.sub:SetPoint("TOPLEFT", 16, -64)
- 876| 
- 877|     W.npc = FS(frame, BONE, 15)
- 878|     W.npc:SetPoint("TOPLEFT", 16, -92)
- 879|     W.npcInfo = FS(frame, DIM, 11)
- 880|     W.npcInfo:SetPoint("TOPLEFT", 16, -112)
- 881| 
- 882|     -- 13pt apart, not 15: the four-affix rungs need to clear the roll board
- 883|     for i = 1, 4 do
- 884|         local fs = FS(frame, DIM, 11)
- 885|         fs:SetPoint("TOPLEFT", 16, -128 - (i - 1) * 13)
- 886|         fs:SetText("")
- 887|         W.affix[i] = fs
- 888|     end
- 889| 
- 890|     -- the board: two panels, your roll and theirs, never one shared number
- 891|     W.youPanel = Panel(frame, 184, 64, GOLD)
- 892|     W.youPanel:SetPoint("TOPLEFT", 8, -184)
- 893|     W.youEdge = W.youPanel.edge
- 894| 
- 895|     W.youFlash = W.youPanel:CreateTexture(nil, "BACKGROUND", nil, 1)
- 896|     W.youFlash:SetAllPoints()
- 897|     W.youFlash:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
- 898|     W.youFlash:SetAlpha(0)
- 899| 
- 900|     W.youLabel = FS(W.youPanel, DIM, 10)
- 901|     W.youLabel:SetPoint("TOP", 0, -4)
- 902|     W.youLabel:SetText("YOUR ROLL")
- 903| 
- 904|     W.youNum = FS(W.youPanel, GOLD, 32)
- 905|     W.youNum:SetPoint("TOP", 0, -17)
- 906|     W.youNum:SetText("--")
- 907| 
- 908|     W.themPanel = Panel(frame, 184, 64, RED)
- 909|     W.themPanel:SetPoint("TOPRIGHT", -8, -184)
- 910|     W.themEdge = W.themPanel.edge
- 911| 
- 912|     W.themFlash = W.themPanel:CreateTexture(nil, "BACKGROUND", nil, 1)
- 913|     W.themFlash:SetAllPoints()
- 914|     W.themFlash:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 1)
- 915|     W.themFlash:SetAlpha(0)
- 916| 
- 917|     W.themLabel = FS(W.themPanel, DIM, 10)
- 918|     W.themLabel:SetPoint("TOP", 0, -4)
- 919|     W.themLabel:SetText("THEIR ROLL")
- 920| 
- 921|     W.themNum = FS(W.themPanel, RED, 32)
- 922|     W.themNum:SetPoint("TOP", 0, -17)
- 923|     W.themNum:SetText("--")
- 924| 
- 925|     W.range = FS(frame, DIM, 11)
- 926|     W.range:SetPoint("TOP", 0, -252)
- 927| 
- 928|     for i = 1, 6 do
- 929|         local fs = FS(frame, BONE, 11)
- 930|         fs:SetPoint("TOPLEFT", 20, -288 - (i - 1) * 14)
- 931|         fs:SetText("")
- 932|         W.log[i] = fs
- 933|     end
- 934| 
- 935|     W.prev = Btn(frame, "<", 24, 18, 10, function() SelectRung(-1) end)
- 936|     W.prev:SetPoint("TOPRIGHT", -60, -90)
- 937|     W.next = Btn(frame, ">", 24, 18, 10, function() SelectRung(1) end)
- 938|     W.next:SetPoint("TOPRIGHT", -30, -90)
- 939| 
- 940|     W.minus = Btn(frame, "-", 28, 22, 12, function() AdjustWager(-1) end)
- 941|     W.minus:SetPoint("TOPLEFT", 16, -368)
- 942|     W.plus = Btn(frame, "+", 28, 22, 12, function() AdjustWager(1) end)
- 943|     W.plus:SetPoint("TOPRIGHT", -16, -368)
- 944| 
- 945|     W.wager = FS(frame, BONE, 13)
- 946|     W.wager:SetPoint("TOP", 0, -372)
- 947| 
- 948|     -- 108 wide and MIN nudged right: at 130 the two boxes overlapped by 16px
- 949|     W.loan = Btn(frame, "Take the loan", 108, 20, 10, function()
- 950|         if Borrow() then ns.Refresh() end
- 951|     end)
- 952|     W.loan:SetPoint("TOPLEFT", 16, -396)
- 953|     W.loan:Hide()
- 954| 
- 955|     W.min = Btn(frame, "MIN", 70, 20, 10, function()
- 956|         ns.wager = BuildConfig(ns.selectedRung).minWager
- 957|         ns.Refresh()
- 958|     end)
- 959|     W.min:SetPoint("TOPRIGHT", -190, -396)
- 960| 
- 961|     W.half = Btn(frame, "HALF", 70, 20, 10, function()
- 962|         local cfg = BuildConfig(ns.selectedRung)
- 963|         ns.wager = max(cfg.minWager, floor(DB.gold / 2))
- 964|         ns.Refresh()
- 965|     end)
- 966|     W.half:SetPoint("TOPRIGHT", -116, -396)
- 967| 
- 968|     W.allin = Btn(frame, "ALL IN", 70, 20, 10, function()
- 969|         local cfg = BuildConfig(ns.selectedRung)
- 970|         ns.wager = max(cfg.minWager, DB.gold)
- 971|         ns.Refresh()
- 972|     end)
- 973|     W.allin:SetPoint("TOPRIGHT", -42, -396)
- 974| 
- 975|     W.roll = Btn(frame, "ROLL", 368, 40, 16, function()
- 976|         -- a plain click on a live auto hand stops the next deal, not this one
- 977|         if ns.auto and not IsShiftKeyDown() and state and not state.finished then
- 978|             ns.auto = false
- 979|             ns.Refresh()
- 980|             return
- 981|         end
- 982|         DoRoll()
- 983|     end)
- 984|     W.roll:SetPoint("TOP", 0, -424)
- 985|     W.roll:SetScript("OnEnter", function(self)
- 986|         GameTooltip:SetOwner(self, "ANCHOR_TOP")
- 987|         GameTooltip:AddLine("ROLL", GOLD[1], GOLD[2], GOLD[3])
- 988|         GameTooltip:AddLine("Left click puts up the stake.", 1, 1, 1)
- 989|         GameTooltip:AddLine("Shift-click rolls one number at a time.", 1, 1, 1)
- 990|         GameTooltip:Show()
- 991|     end)
- 992|     W.roll:SetScript("OnLeave", function() GameTooltip:Hide() end)
- 993| 
- 994|     -- auto-spin is a control you can see: a pill on the right of the bar
- 995|     W.autoBtn = CreateFrame("Button", nil, W.roll)
- 996|     W.autoBtn:SetSize(72, 22)
- 997|     W.autoBtn:SetPoint("RIGHT", -6, 0)
- 998|     W.autoBtn.edge = W.autoBtn:CreateTexture(nil, "BACKGROUND")
- 999|     W.autoBtn.edge:SetAllPoints()
-1000|     W.autoBtn.edge:SetColorTexture(DIM[1], DIM[2], DIM[3], 0.55)
-1001|     W.autoBtn.bg = W.autoBtn:CreateTexture(nil, "BACKGROUND", nil, 1)
-1002|     W.autoBtn.bg:SetPoint("TOPLEFT", 1, -1)
-1003|     W.autoBtn.bg:SetPoint("BOTTOMRIGHT", -1, 1)
-1004|     W.autoBtn.bg:SetColorTexture(0.10, 0.09, 0.07, 0.95)
-1005|     W.autoBtn.label = FS(W.autoBtn, BONE, 10)
-1006|     W.autoBtn.label:SetPoint("CENTER")
-1007|     W.autoBtn.label:SetText("AUTO OFF")
-1008|     W.autoBtn:SetScript("OnClick", function()
-1009|         ns.auto = not ns.auto
-1010|         ns.autoT = 0
-1011|         ns.Refresh()
-1012|     end)
-1013|     W.autoBtn:SetScript("OnEnter", function(self)
-1014|         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-1015|         GameTooltip:AddLine("Auto-spin", GOLD[1], GOLD[2], GOLD[3])
-1016|         GameTooltip:AddLine("On: every hand that ends deals the same stake again, until you stop it or go broke.", 1, 1, 1, true)
-1017|         GameTooltip:Show()
-1018|     end)
-1019|     W.autoBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-1020| 
-1021|     -- under the button, in its own band: above it would clip the quick buttons
-1022|     W.hint = FS(frame, DIM, 10)
-1023|     W.hint:SetPoint("TOP", W.roll, "BOTTOM", 0, -2)
-1024|     W.hint:SetText("")
-1025| 
-1026|     for i, p in ipairs(POWERS) do
-1027|         local col = (i - 1) % 2
-1028|         local row = floor((i - 1) / 2)
-1029|         local b = Btn(frame, PowerLabel(p, DB.powers[p.id] or 0), 178, 24, 10, function(self)
-1030|             BuyPower(self.powerId)
-1031|             BustCheck()
-1032|             ns.Refresh()
-1033|         end)
-1034|         b:SetPoint("TOPLEFT", 14 + col * 192, -484 - row * 28)
-1035|         b.powerId = p.id
-1036|         b:SetScript("OnEnter", function(self)
-1037|             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-1038|             GameTooltip:AddLine(p.name, GOLD[1], GOLD[2], GOLD[3])
-1039|             GameTooltip:AddLine(p.desc, 1, 1, 1, true)
-1040|             GameTooltip:Show()
-1041|         end)
-1042|         b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-1043|         W.shop[i] = b
-1044|     end
-1045| 
-1046|     -- one animation driver: board pulse, result flash, per-roll pop
-1047|     frame:SetScript("OnUpdate", function(_, elapsed)
-1048|         local liveNow = state and not state.finished
-1049| 
-1050|         if flashT > 0 then
-1051|             flashT = max(0, flashT - elapsed)
-1052|             BoardAlpha((flashT / FLASH_TIME) * 0.40)
-1053|         elseif liveNow then
-1054|             if not pulsing then
-1055|                 pulsing = true
-1056|                 BoardColor(GOLD[1], GOLD[2], GOLD[3])
-1057|             end
-1058|             BoardAlpha(0.05 + 0.05 * (0.5 + 0.5 * math.sin(GetTime() * 2.6)))
-1059|         elseif pulsing then
-1060|             pulsing = false
-1061|             BoardAlpha(0)
-1062|         end
-1063| 
-1064|         if popT > 0 then
-1065|             popT = max(0, popT - elapsed)
-1066|             if popTarget then
-1067|                 popTarget:SetAlpha(1 - (popT / POP_TIME) * 0.85)
-1068|                 if popT == 0 then popTarget = nil end
-1069|             end
-1070|         end
-1071|     end)
-1072| 
-1073|     frame:Hide()
-1074| 
-1075|     -- prestige overlay: crowns are spendable, in place
-1076|     prestigeFrame = Panel(UIParent, 360, 300, BLOOD)
-1077|     prestigeFrame:SetPoint("CENTER")
-1078|     prestigeFrame:SetFrameStrata("DIALOG")
-1079| 
-1080|     local ptitle = FS(prestigeFrame, BLOOD, 16)
-1081|     ptitle:SetPoint("TOP", 0, -18)
-1082|     ptitle:SetText("THE TABLE TAKES YOU")
-1083|     W.pTitle = ptitle
-1084| 
-1085|     -- mid-run the panel needs a way out that is not "start a new run"
-1086|     W.pClose = CreateFrame("Button", nil, prestigeFrame, "UIPanelCloseButton")
-1087|     W.pClose:SetPoint("TOPRIGHT", -3, -3)
-1088|     W.pClose:SetScript("OnClick", function()
-1089|         prestigeFrame:Hide()
-1090|         ns.Refresh()
-1091|     end)
-1092| 
-1093|     W.pCrowns = FS(prestigeFrame, GOLD, 14)
-1094|     W.pCrowns:SetPoint("TOP", 0, -44)
-1095|     W.pCrowns:SetText("")
-1096| 
-1097|     for i, e in ipairs(PRESTIGE) do
-1098|         local b = Btn(prestigeFrame, e.name, 300, 22, 11, function(self)
-1099|             if BuyPrestige(self.prestigeId) then ns.ShowPrestige(DB.lastCrowns) end
-1100|         end)
-1101|         b:SetPoint("TOPLEFT", 20, -72 - (i - 1) * 26)
-1102|         b.prestigeId = e.id
-1103|         W.prestige[i] = b
-1104|     end
-1105| 
-1106|     W.pAgain = Btn(prestigeFrame, "Sit down again", 200, 26, 12, function()
-1107|         StartNewRunUI()
-1108|     end)
-1109|     W.pAgain:SetPoint("BOTTOM", 0, 18)
-1110| 
-1111|     prestigeFrame:Hide()
-1112| 
-1113|     -- the tour: shown once, then reachable from the ? button and /drb help
-1114|     welcomeFrame = Panel(UIParent, 380, 340, GOLD)
-1115|     welcomeFrame:SetPoint("CENTER")
-1116|     welcomeFrame:SetFrameStrata("DIALOG")
-1117| 
-1118|     local wtitle = FS(welcomeFrame, GOLD, 16)
-1119|     wtitle:SetPoint("TOP", 0, -14)
-1120|     wtitle:SetText("DEATHROLL BARON")
-1121| 
-1122|     local wsub = FS(welcomeFrame, DIM, 11)
-1123|     wsub:SetPoint("TOP", 0, -34)
-1124|     wsub:SetText("the whole game, in five lines")
-1125| 
-1126|     for i, text in ipairs(TOUR) do
-1127|         local fs = FS(welcomeFrame, BONE, 11)
-1128|         fs:SetPoint("TOPLEFT", 22, -54 - (i - 1) * 40)
-1129|         fs:SetWidth(336)
-1130|         fs:SetJustifyH("LEFT")
-1131|         fs:SetText(text)
-1132|     end
-1133| 
-1134|     W.wGo = Btn(welcomeFrame, "Sit down", 180, 28, 12, function()
-1135|         DB.seenWelcome = true
-1136|         welcomeFrame:Hide()
-1137|     end)
-1138|     W.wGo:SetPoint("BOTTOM", 0, 16)
-1139| 
-1140|     local wclose = CreateFrame("Button", nil, welcomeFrame, "UIPanelCloseButton")
-1141|     wclose:SetPoint("TOPRIGHT", -3, -3)
-1142|     wclose:SetScript("OnClick", function()
-1143|         DB.seenWelcome = true
-1144|         welcomeFrame:Hide()
-1145|     end)
-1146| 
-1147|     welcomeFrame:Hide()
-1148| end
-1149| 
-1150| ShowWelcome = function()
-1151|     if not welcomeFrame then return end
-1152|     welcomeFrame:Show()
-1153| end
-1154| 
-1155| -- minimap button, hand-rolled: 32pt icon, drag it around the ring, angle saved
-
-== Refresh / ShowPrestige (lines 1229-1469) ==
-1229| function ns.Refresh()
-1230|     if not frame or not DB then return end
-1231| 
-1232|     if not ns.selectedRung then ns.selectedRung = DB.bestRung end
-1233|     ns.selectedRung = min(DB.bestRung, max(1, ns.selectedRung))
-1234| 
-1235|     local cfg = BuildConfig(ns.selectedRung)
-1236|     local live = state and not state.finished
-1237| 
-1238|     -- while a match is live the stake is already off the wallet, so the bet on
-1239|     -- the table is state.wager and must not be re-clamped to the lower gold
-1240|     if live then
-1241|         ns.wager = state.wager
-1242|     else
-1243|         if not ns.wager or ns.wager < cfg.minWager then ns.wager = cfg.minWager end
-1244|         if ns.wager > DB.gold then ns.wager = max(cfg.minWager, DB.gold) end
-1245|     end
-1246| 
-1247|     W.gold:SetText(Money(DB.gold))
-1248|     local streak = (DB.streak or 0) >= 3 and ("   " .. DB.streak .. " in a row") or ""
-1249|     W.sub:SetText(("peak %s%s    run %d    %dW/%dL"):format(
-1250|         Money(DB.peak), streak, DB.runs + 1, DB.wins, DB.losses))
-1251|     if W.crowns then W.crowns:SetText(CrownLabel(DB.crowns)) end
-1252| 
-1253|     W.npc:SetText(("%d/%d  %s"):format(ns.selectedRung, #NPCS, cfg.name))
-1254|     W.npcInfo:SetText(("%s   .   level %s   .   purse %s"):format(
-1255|         cfg.zone, cfg.level, Money(cfg.purse)))
-1256| 
-1257|     for i = 1, 4 do
-1258|         local a = cfg.affixes[i]
-1259|         if a then
-1260|             W.affix[i]:SetText((a.flaw and "flaw " or "EDGE ") .. a.name .. " - " .. a.text)
-1261|             if a.flaw then
-1262|                 W.affix[i]:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
-1263|             else
-1264|                 W.affix[i]:SetTextColor(RED[1], RED[2], RED[3])
-1265|             end
-1266|         else
-1267|             W.affix[i]:SetText("")
-1268|         end
-1269|     end
-1270|     if ns.selectedRung < 6 and W.affix[1]:GetText() == "" then
-1271|         W.affix[1]:SetText("no tricks. base rng.")
-1272|         W.affix[1]:SetTextColor(DIM[1], DIM[2], DIM[3])
-1273|     end
-1274| 
-1275|     -- the board: who rolled what, and whose turn it is right now
-1276|     local yours = live and state.turn == "player"
-1277|     local theirs = live and state.turn == "enemy"
-1278| 
-1279|     if state and state.lastPlayer then
-1280|         W.youNum:SetText(tostring(state.lastPlayer))
-1281|     else
-1282|         W.youNum:SetText(live and "?" or "--")
-1283|     end
-1284|     if state and state.lastEnemy then
-1285|         W.themNum:SetText(tostring(state.lastEnemy))
-1286|     else
-1287|         W.themNum:SetText(live and "?" or "--")
-1288|     end
-1289| 
-1290|     W.youLabel:SetText("YOUR ROLL" .. (yours and "   <<" or ""))
-1291|     W.themLabel:SetText("THEIR ROLL" .. (theirs and "   <<" or ""))
-1292|     W.youEdge:SetAlpha(yours and 0.95 or 0.30)
-1293|     W.themEdge:SetAlpha(theirs and 0.95 or 0.30)
-1294| 
-1295|     if live then
-1296|         local turn = yours and "your turn" or "their turn"
-1297|         W.range:SetText(("%s  .  roll 1 - %d%s"):format(turn, state.max, Tension(state.max)))
-1298|         if yours then
-1299|             W.range:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-1300|         else
-1301|             W.range:SetTextColor(RED[1], RED[2], RED[3])
-1302|         end
-1303|     elseif state and state.finished then
-1304|         if state.result == "win" then
-1305|             W.range:SetText("you take the pot  .  " .. Signed(state.net or 0))
-1306|             W.range:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
-1307|         else
-1308|             W.range:SetText("you pay up  .  " .. Signed(state.net or 0))
-1309|             W.range:SetTextColor(0.85, 0.30, 0.26)
-1310|         end
-1311|     else
-1312|         W.range:SetText(("opens at 1 - %d  .  %s to sit down"):format(cfg.ceiling, Money(cfg.minWager)))
-1313|         W.range:SetTextColor(DIM[1], DIM[2], DIM[3])
-1314|     end
-1315| 
-1316|     local entries = {}
-1317|     if state then
-1318|         for i = max(1, #state.log - 5), #state.log do
-1319|             entries[#entries + 1] = state.log[i]
-1320|         end
-1321|     end
-1322|     if #entries == 0 then
-1323|         entries[1] = { kind = "dim", text = "the table is quiet." }
-1324|         entries[2] = { kind = "dim", text = "you want the low roll. they want the high one." }
-1325|         entries[3] = { kind = "dim", text = "gold buys cheats. crowns buy permanence." }
-1326|     end
-1327|     for i = 1, 6 do
-1328|         local e = entries[i]
-1329|         if e then
-1330|             W.log[i]:SetText(e.text)
-1331|             if e.kind == "you" then
-1332|                 W.log[i]:SetTextColor(GOLD[1] + 0.15, GOLD[2] + 0.15, GOLD[3] + 0.25)
-1333|             elseif e.kind == "them" then
-1334|                 W.log[i]:SetTextColor(RED[1], RED[2], RED[3])
-1335|             elseif e.kind == "win" then
-1336|                 W.log[i]:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
-1337|             elseif e.kind == "lose" then
-1338|                 W.log[i]:SetTextColor(0.85, 0.30, 0.26)
-1339|             elseif e.kind == "bank" then
-1340|                 W.log[i]:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-1341|             elseif e.kind == "dim" then
-1342|                 W.log[i]:SetTextColor(DIM[1], DIM[2], DIM[3])
-1343|             else
-1344|                 W.log[i]:SetTextColor(BONE[1], BONE[2], BONE[3])
-1345|             end
-1346|         else
-1347|             W.log[i]:SetText("")
-1348|         end
-1349|     end
-1350| 
-1351|     W.wager:SetText(Money(ns.wager))
-1352|     -- enabled during a match too: a manual match is advanced by clicking it
-1353|     W.roll:SetEnabled(true)
-1354|     if live and state.manual then
-1355|         W.roll:SetText("ROLL ONE   (click)")
-1356|         W.hint:SetText("manual: one roll per click, shift or not")
-1357|     elseif live then
-1358|         W.roll:SetText("ROLLING")
-1359|         W.hint:SetText(ns.auto and "click to stop after this hand" or "shift-click to take over")
-1360|     else
-1361|         W.roll:SetText("ROLL   " .. Money(ns.wager))
-1362|         W.hint:SetText(ns.auto and "same stake deals again on its own  .  AUTO to stop"
-1363|             or "shift-click: roll one at a time  .  AUTO: keep dealing")
-1364|     end
-1365|     -- the pill on the bar is the control, so the bar's own text stays plain
-1366|     if W.autoBtn then
-1367|         W.autoBtn.label:SetText(ns.auto and "AUTO ON" or "AUTO OFF")
-1368|         if ns.auto then
-1369|             W.autoBtn.label:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
-1370|             W.autoBtn.edge:SetColorTexture(GREEN[1], GREEN[2], GREEN[3], 0.90)
-1371|             W.autoBtn.bg:SetColorTexture(0.14, 0.20, 0.10, 0.95)
-1372|         else
-1373|             W.autoBtn.label:SetTextColor(BONE[1], BONE[2], BONE[3])
-1374|             W.autoBtn.edge:SetColorTexture(DIM[1], DIM[2], DIM[3], 0.55)
-1375|             W.autoBtn.bg:SetColorTexture(0.10, 0.09, 0.07, 0.95)
-1376|         end
-1377|     end
-1378| 
-1379|     -- no loan while a hand is live: the stake is already committed
-1380|     W.loan:SetShown(not live and DB.gold < cfg.minWager and not DB.loanUsed and not DB.ended)
-1381|     W.prev:SetEnabled(ns.selectedRung > 1)
-1382|     W.next:SetEnabled(ns.selectedRung < DB.bestRung)
-1383| 
-1384|     for i, p in ipairs(POWERS) do
-1385|         local b = W.shop[i]
-1386|         if b then
-1387|             local r = DB.powers[p.id] or 0
-1388|             if r >= p.max then
-1389|                 b:SetText(PowerLabel(p, r))
-1390|                 b:SetEnabled(false)
-1391|             else
-1392|                 local cost = PowerCost(p)
-1393|                 b:SetText(PowerLabel(p, r, cost))
-1394|                 b:SetEnabled(DB.gold >= cost and not DB.ended)
-1395|             end
-1396|         end
-1397|     end
-1398| end
-1399| 
-1400| ns.ShowPrestige = function(earned)
-1401|     if not prestigeFrame then return end
-1402| 
-1403|     -- the same panel serves the death screen and the crown button
-1404|     if W.pTitle then
-1405|         if DB.ended then
-1406|             W.pTitle:SetText("THE TABLE TAKES YOU")
-1407|             W.pTitle:SetTextColor(BLOOD[1], BLOOD[2], BLOOD[3])
-1408|         else
-1409|             W.pTitle:SetText("BONE CROWNS")
-1410|             W.pTitle:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-1411|         end
-1412|     end
-1413|     if W.pAgain then W.pAgain:SetShown(DB.ended) end
-1414|     if W.pClose then W.pClose:SetShown(not DB.ended) end
-1415|     if DB.ended then
-1416|         W.pCrowns:SetText(("+%d Bone Crowns   (you hold %d)"):format(earned or DB.lastCrowns, DB.crowns))
-1417|     else
-1418|         W.pCrowns:SetText(("you hold %d Bone Crowns"):format(DB.crowns))
-1419|     end
-1420|     if W.crowns then W.crowns:SetText(CrownLabel(DB.crowns)) end
-1421|     for i, e in ipairs(PRESTIGE) do
-1422|         local b = W.prestige[i]
-1423|         if b then
-1424|             local r = DB.prestige[e.id] or 0
-1425|             if e.single and r >= 1 then
-1426|                 b:SetText(("%s  -  owned"):format(e.name))
-1427|                 b:SetEnabled(false)
-1428|             else
-1429|                 local cost = PrestigeCost(e)
-1430|                 b:SetText(("%s  rank %d  -  %s  -  %d crowns"):format(e.name, r, e.per, cost))
-1431|                 b:SetEnabled(DB.crowns >= cost)
-1432|             end
-1433|         end
-1434|     end
-1435|     prestigeFrame:Show()
-1436| end
-1437| 
-1438| SelectRung = function(dir)
-1439|     ns.selectedRung = min(DB.bestRung, max(1, (ns.selectedRung or 1) + dir))
-1440|     ns.wager = BuildConfig(ns.selectedRung).minWager
-1441|     ns.Refresh()
-1442| end
-1443| 
-1444| AdjustWager = function(dir)
-1445|     local cfg = BuildConfig(ns.selectedRung)
-1446|     local step = max(10, floor(cfg.minWager / 4))
-1447|     ns.wager = max(cfg.minWager, min(max(DB.gold, cfg.minWager), ns.wager + dir * step))
-1448|     ns.Refresh()
-1449| end
-1450| 
-1451| -- One button, three jobs:
-1452| --   no match, no shift   -> start a match on the ticker
-1453| --   no match, shift      -> start a match in manual mode, and roll once
-1454| --   live match, any mode -> any click on a manual match steps; shift takes over an auto one
-1455| DoRoll = function()
-1456|     if DB.ended then
-1457|         if ns.ShowPrestige then ns.ShowPrestige(DB.lastCrowns) end
-1458|         return
-1459|     end
-1460| 
-1461|     if state and not state.finished then
-1462|         if state.manual or IsShiftKeyDown() then
-1463|             state.manual = true
-1464|             StepMatch()
-1465|             ns.Refresh()
-1466|         end
-1467|         return
-1468|     end
-1469| 
-
-== odds mention / odds mention / odds mention (lines 1573-1592) ==
-1573| SlashCmdList["DEATHROLLBARON"] = function(msg)
-1574|     msg = (msg or ""):lower()
-1575|     if msg == "help" then
-1576|         ShowWelcome()
-1577|         return
-1578|     end
-1579|     if msg == "odds" then
-1580|         local rung = ns.selectedRung or 1
-1581|         local cfg = BuildConfig(rung)
-1582|         local A, B = OddsUpTo(cfg.ceiling, cfg.playerLuck, cfg.enemyLuck, cfg.desperate and true or false)
-1583|         print(("|cffc9a227odds|r rung %d (%s): ceiling %d, %.1f%% as the opener, %.1f%% as the second player"):format(
-1584|             rung, cfg.name, cfg.ceiling, A[cfg.ceiling] * 100, B[cfg.ceiling] * 100))
-1585|         return
-1586|     end
-1587|     if msg == "reset" then
-1588|         DB.powers = {}
-1589|         DB.bestRung = 1
-1590|         DB.gold = 500 + 250 * (DB.prestige.money or 0)
-1591|         DB.peak = DB.gold
-1592|         DB.debt, DB.loanUsed = 0, false
-
-== odds mention (lines 1623-1638) ==
-1623|     end
-1624|     Toggle()
-1625| end
-1626| 
-1627| ---------------------------------------------------------------------
-1628| -- juice: quick-fire layer
-1629| -- Additive: nothing above this is rewritten, so the odds solver and
-1630| -- the match engine behave exactly as before. Everything lives on one
-1631| -- table so the file's chunk-local budget is untouched.
-1632| ---------------------------------------------------------------------
-1633| local J = {}
-1634| 
-1635| J.COIN = "Interface\\Icons\\INV_Misc_Coin_01"
-1636| J.COIN2 = "Interface\\Icons\\INV_Misc_Coin_02"
-1637| J.WHITE = "Interface\\Buttons\\WHITE8X8"
-1638| J.ready = false
-
-== J.Init / odds mention (lines 1654-1713) ==
-1654| function J.Init()
-1655|     if J.ready or not frame or not W.youNum or not W.gold then return end
-1656|     J.ready = true
-1657|     J.scaleYou, J.scaleThem, J.goldScale, J.glowA = 1, 1, 1, 0
-1658|     J.parts, J.texts = {}, {}
-1659| 
-1660|     -- juice draws on a frame above every child panel: a FontString parented
-1661|     -- straight to `frame` sits under the roll panels and their dark fills
-1662|     local fx = CreateFrame("Frame", nil, frame)
-1663|     fx:SetAllPoints(frame)
-1664|     fx:SetFrameLevel(frame:GetFrameLevel() + 12)
-1665|     J.fx = fx
-1666| 
-1667|     -- the odds bar: the one number the whole game hangs on
-1668|     -- range line ends about -266, bar runs -269..-285, log starts -288:
-1669|     -- 3pt clear above and below. 18pt at -264 touched the range line.
-1670|     local bar = CreateFrame("Frame", nil, frame)
-1671|     bar:SetSize(384, 16)
-1672|     bar:SetPoint("TOP", frame, "TOP", 0, -269)
-1673|     local bg = bar:CreateTexture(nil, "BACKGROUND")
-1674|     bg:SetAllPoints()
-1675|     bg:SetColorTexture(0.10, 0.09, 0.07, 0.96)
-1676|     bar.fill = bar:CreateTexture(nil, "BACKGROUND", nil, 1)
-1677|     bar.fill:SetPoint("TOPLEFT", 1, -1)
-1678|     bar.fill:SetPoint("BOTTOMLEFT", 1, 1)
-1679|     bar.fill:SetWidth(1)
-1680|     bar.fill:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
-1681|     local mid = bar:CreateTexture(nil, "BACKGROUND", nil, 2)
-1682|     mid:SetSize(1, 18)
-1683|     mid:SetPoint("CENTER")
-1684|     mid:SetColorTexture(1, 1, 1, 0.16)
-1685|     bar.text = FS(bar, GOLD, 11)
-1686|     bar.text:SetPoint("CENTER")
-1687|     bar.text:SetWidth(376)
-1688|     bar.text:SetJustifyH("CENTER")
-1689|     J.bar = bar
-1690| 
-1691|     local glow = frame:CreateTexture(nil, "BACKGROUND", nil, 2)
-1692|     glow:SetAllPoints()
-1693|     glow:SetColorTexture(1, 0.84, 0.28, 1)
-1694|     glow:SetAlpha(0)
-1695|     J.glow = glow
-1696| 
-1697|     for i = 1, 44 do
-1698|         local t = J.fx:CreateTexture(nil, "OVERLAY", nil, 3)
-1699|         t:SetTexture(J.WHITE)
-1700|         t:SetSize(10, 10)
-1701|         t:Hide()
-1702|         J.parts[i] = { tex = t, life = 0 }
-1703|     end
-1704| 
-1705|     for i = 1, 6 do
-1706|         local fs = FS(J.fx, GOLD, 20)
-1707|         fs:SetPoint("CENTER", J.fx, "CENTER", 0, 0)
-1708|         fs:SetAlpha(0)
-1709|         fs:SetText("")
-1710|         J.texts[i] = { fs = fs, life = 0, x = 0, y = 0, vy = 0 }
-1711|     end
-1712| end
-1713| 
-
-== odds mention (lines 1817-1832) ==
-1817| local function BarSigned(c)
-1818|     c = floor((c or 0) + 0.5)
-1819|     if c < 0 then return "-" .. BarMoney(-c) end
-1820|     return "+" .. BarMoney(c)
-1821| end
-1822| 
+== J.Odds (lines 1823-1847) ==
 1823| function J.Odds()
 1824|     if not J.ready or not DB then return end
 1825|     local s = state
@@ -882,58 +110,52 @@ DeathrollBaron.lua UI context, 2135 lines total
 1830|     if chance > 1 then chance = 1 end
 1831|     local pct = floor(chance * 100 + 0.5)
 1832|     local wager = live and s.wager or (ns.wager or cfg.minWager)
+1833|     local gross = floor(wager * cfg.mult)
+1834|     local payout = max(0, min(gross - floor(gross * cfg.winTax), cfg.purse))
+1835|     local risk = floor(wager * cfg.lossMult * cfg.lossFrac)
+1836|     -- what a hand is worth from here: a win is the payout net of the
+1837|     -- stake that already left the purse, a loss is the fraction paid back.
+1838|     local ev = chance * (payout - wager) - (1 - chance) * risk
+1839|     local col = GOLD
+1840|     if pct >= 56 then col = GREEN elseif pct <= 44 then col = RED end
+1841|     J.bar.fill:SetWidth(max(1, floor(382 * chance)))
+1842|     J.bar.fill:SetColorTexture(col[1], col[2], col[3], 0.55 + 0.25 * (0.5 + 0.5 * math.sin(GetTime() * 3)))
+1843|     J.bar.text:SetText(("%d%% . pays %s . risk %s . EV %s"):format(
+1844|         pct, BarMoney(payout), BarMoney(risk), BarSigned(ev)))
+1845|     J.bar.text:SetTextColor(col[1], col[2], col[3])
+1846| end
+1847| 
 
-== odds mention (lines 1900-1915) ==
-1900|         if J.glow then J.glow:SetAlpha(J.glowA) end
-1901|     end
-1902| end
-1903| 
-1904| ---------------------------------------------------------------------
-1905| -- 0.0.10: pace, reel, and a ceremony for the one
-1906| -- Still additive: the odds solver, the match engine and the save file
-1907| -- are untouched. Everything is detected in the refresh wrapper and
-1908| -- animated in J.Step, so nothing changes a frame before it is drawn.
-1909| ---------------------------------------------------------------------
-1910| 
-1911| -- The ticker re-reads cfg.speed after every roll, so the curve is
-1912| -- written straight onto the live config. The base is cached on the hand
-1913| -- table, which keeps Fast Hands fast and disappears with the hand.
-1914| function J.PaceK(m, ceiling)
-1915|     return min(1.50, 0.70 + 0.95 * (1 - m / ceiling) ^ 1.7)
-
-== driver / odds mention / odds mention / odds mention / odds mention / odds mention / odds mention (lines 2060-2094) ==
+== J.Sync (lines 2030-2061) ==
+2030| function J.Sync()
+2031|     local s = state
+2032|     if s ~= J.seenState then
+2033|         J.seenState = s
+2034|         J.lastP, J.lastE = nil, nil
+2035|         J.scaleYou, J.scaleThem = 1, 1
+2036|         J.span, J.done, J.hold = nil, nil, nil
+2037|     end
+2038|     if not s then return end
+2039| 
+2040|     if not s.finished then
+2041|         if s.lastPlayer ~= J.lastP then
+2042|             J.lastP = s.lastPlayer
+2043|             if s.lastPlayer then J.ReelStart('you', s.lastPlayer) end
+2044|         end
+2045|         if s.lastEnemy ~= J.lastE then
+2046|             J.lastE = s.lastEnemy
+2047|             if s.lastEnemy then J.ReelStart('them', s.lastEnemy) end
+2048|         end
+2049|     elseif J.done ~= s then
+2050|         J.done = s
+2051|         J.Ceremony(s)
+2052|     end
+2053| 
+2054|     if J.hold then
+2055|         local col = J.hold.won and GOLD or RED
+2056|         W.range:SetText(J.hold.won and 'a one  .  the pot is coming' or 'a one  .  the pot is going')
+2057|         W.range:SetTextColor(col[1], col[2], col[3])
+2058|     end
+2059| end
 2060| 
 2061| local jbase = ns.Refresh
-2062| ns.Refresh = function(...)
-2063|     if jbase then jbase(...) end
-2064|     J.Sync()
-2065|     J.ReelPaint()
-2066|     J.Odds()
-2067| end
-2068| 
-2069| local jdriver = CreateFrame("Frame")
-2070| jdriver:SetScript("OnUpdate", function(_, el)
-2071|     if not J.ready then
-2072|         if frame and W.youNum and W.gold then
-2073|             J.Init()
-2074|             J.Odds()
-2075|         end
-2076|         return
-2077|     end
-2078|     J.Step(el)
-2079|     ns.AutoTick(el)
-2080|     -- the bar has its own clock: a refresh that never fires cannot blank it
-2081|     if frame and frame:IsShown() then
-2082|         J.oddsT = (J.oddsT or 0) + el
-2083|         if J.oddsT >= 0.20 then
-2084|             J.oddsT = 0
-2085|             J.Odds()
-2086|         end
-2087|     end
-2088| end)
-2089| 
-2090| ---------------------------------------------------------------------
-2091| -- auto-spin: the table keeps dealing
-2092| -- Session-only on purpose: it is off at login and it stops when the
-2093| -- frame closes, so it can never spend a purse unattended. The pause
-2094| -- contains the ceremony's hold, so the reveal is still never cut short.
