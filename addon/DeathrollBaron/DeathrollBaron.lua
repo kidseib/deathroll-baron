@@ -1540,6 +1540,12 @@ DoRoll = function()
     end
 
     local manual = IsShiftKeyDown() and true or false
+    -- the pot gets home before the cards hit the felt
+    if ns.PotSeat and not ns.PotSeat() then
+        ns.pendingDeal = { manual = manual, token = stateToken }
+        return
+    end
+    ns.pendingDeal = nil
     if StartMatch(ns.selectedRung, ns.wager, manual) and manual then
         StepMatch()
     end
@@ -2060,6 +2066,9 @@ function J.Step(el)
             if a.fade then
                 J.potA = (a.a0 or 1) * (1 - k)
                 J.pot.body:SetAlpha(J.potA)
+            elseif a.home then
+                J.potA = (a.a0 or 1) + (0.84 - (a.a0 or 1)) * k
+                J.pot.body:SetAlpha(J.potA)
             end
             if k >= 1 then
                 J.potAnim = nil
@@ -2067,6 +2076,12 @@ function J.Step(el)
                     J.pot.body:Hide()
                     J.potHidden = true
                     J.potAtWinner = false
+                elseif a.home then
+                    J.potX, J.potY = 0, 0
+                    J.potAtWinner = false
+                    J.potA = 0.84
+                    J.pot.body:SetAlpha(J.potA)
+                    J.Pot()
                 end
             end
         elseif not J.potHidden then
@@ -2164,7 +2179,11 @@ function J.Pace()
     s.cfg.speed = s.paceBase * J.PaceK(s.max, s.cfg.ceiling)
 end
 
-local HOLD = 0.55
+-- The one, then the pot, then the result: each beat gets its own air.
+local HOLD = 0.72
+local POT_LEAD = 0.20
+local POT_SLIDE = 0.42
+local SLAM_TIME = 0.16
 -- About six frames at 60fps: the time a settled number needs on screen
 -- before the next roll repaints the panel.
 local REEL_READ = 0.10
@@ -2241,30 +2260,34 @@ end
 function J.Ceremony(s)
     J.ReelSettle()
     local won = (s.lastEnemy == 1)
-    if won then J.scaleThem = 2.5 else J.scaleYou = 2.5 end
+    J.potAtWinner = true
+    if won then J.scaleThem = 2.6 else J.scaleYou = 2.6 end
     local x, y = J.Center(won and W.themPanel or W.youPanel)
-    J.Burst(x, y, 22, true)
-    J.Burst(x, y - 24, 10, true)
+    -- the one lands first; the pot gets the next beat to itself
+    J.Burst(x, y, 14, true)
     local col = won and GOLD or RED
-    J.Float(0, 150, won and 'THEY ROLL A ONE' or 'A ONE. THE POT GOES.', 22, col, 1.5)
     if J.glow then J.glow:SetColorTexture(col[1], col[2], col[3], 1) end
-    J.glowA = 0.40
-    J.PotSlide(won)
-    J.hold = { s = s, t = HOLD, won = won }
+    J.glowA = 0.34
+    J.hold = { s = s, t = HOLD, won = won, beat = 0, pot = false, slam = SLAM_TIME }
 end
 
 function J.TickHold(el)
     local h = J.hold
     if not h then return end
     h.t = h.t - el
+    h.beat = (h.beat or 0) + el
+    h.slam = max(0, (h.slam or 0) - el)
+    local slam = 2.2 + 0.4 * (h.slam / SLAM_TIME)
+    if h.won then J.scaleThem = slam else J.scaleYou = slam end
+    if not h.pot and h.beat >= POT_LEAD then
+        h.pot = true
+        J.PotSlide(h.won)
+    end
     if h.t <= 0 then
         J.hold = nil
         J.Result(h.s)
         ns.Refresh()
-        return
     end
-    local slam = 2.0 + 0.6 * (h.t / HOLD)
-    if h.won then J.scaleThem = slam else J.scaleYou = slam end
 end
 
 -- Everything that changes when the state changes is detected on the
@@ -2342,8 +2365,70 @@ function J.PotSlide(won)
         x1 = won and -170 or 170,
         y1 = -2,
         t = 0,
-        dur = 0.42,
+        dur = POT_SLIDE,
     }
+end
+
+function J.PotSeated()
+    if not J.pot then return true end
+    if J.potHidden or J.potAnim then return false end
+    return (J.potX or 0) == 0 and (J.potY or 0) == 0
+end
+
+-- The pot only leaves the winner when the table is ready to deal again.
+function J.PotReturn()
+    if not J.pot then return end
+    if J.potHidden then
+        J.PotReset()
+        return
+    end
+    if J.potAnim then return end
+    if (J.potX or 0) == 0 and (J.potY or 0) == 0 then
+        J.potAtWinner = false
+        J.Pot()
+        return
+    end
+    J.potAnim = {
+        x0 = J.potX or 0, y0 = J.potY or 0,
+        x1 = 0, y1 = 0,
+        t = 0, dur = 0.26, home = true,
+        a0 = J.potA or 1,
+    }
+end
+
+function ns.PotSeat()
+    if not J.pot then return true end
+    if J.PotSeated() then return true end
+    J.PotReturn()
+    return J.PotSeated()
+end
+
+-- A manual deal waits for the same pot gate as auto.
+function J.DealPending()
+    local p = ns.pendingDeal
+    if not p then return end
+    if not frame or not frame:IsShown() then
+        ns.pendingDeal = nil
+        return
+    end
+    if p.token ~= stateToken then
+        ns.pendingDeal = nil
+        return
+    end
+    if J.hold or J.coinAnim then return end
+    if state and not state.finished then
+        ns.pendingDeal = nil
+        return
+    end
+    if not J.PotSeated() then
+        J.PotReturn()
+        if not J.PotSeated() then return end
+    end
+    ns.pendingDeal = nil
+    if StartMatch(ns.selectedRung, ns.wager, p.manual) then
+        if p.manual then StepMatch() end
+        ns.Refresh()
+    end
 end
 
 function J.Sync()
@@ -2400,6 +2485,7 @@ jdriver:SetScript("OnUpdate", function(_, el)
         return
     end
     J.Step(el)
+    J.DealPending()
     ns.AutoTick(el)
     -- the bar has its own clock: a refresh that never fires cannot blank it
     if frame and frame:IsShown() then
@@ -2453,6 +2539,11 @@ function ns.AutoTick(el)
     end
     ns.autoT = ns.autoT + el
     if ns.autoT < ns.AutoPause(s) or J.hold or J.potAnim or J.coinAnim then return end
+    if not J.PotSeated() then
+        J.PotReturn()
+        if not J.PotSeated() then return end
+    end
+    ns.pendingDeal = nil
     ns.autoT = 0
     if not StartMatch(ns.selectedRung, ns.wager, false) then ns.auto = false end
     ns.Refresh()
