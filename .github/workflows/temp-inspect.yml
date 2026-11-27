@@ -1,0 +1,15 @@
+name: temp-inspect
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/temp-inspect.yml
+
+jobs:
+  show:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show the pot functions
+        run: sed -n '2280,2470p' addon/DeathrollBaron/DeathrollBaron.lua
