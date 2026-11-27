@@ -12,7 +12,7 @@ versioning is [SemVer](https://semver.org/).
 
 ## [0.0.14-beta.1] — 2026-11-27
 
-The table gets dressed, and the pot learns to stack. This is the first build published as a beta;
+The table gets dressed, and the pot learns to stack. This is a beta checkpoint after 0.0.13;
 0.1.0 stays gated on the live-client checklist.
 
 ### Added
