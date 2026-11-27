@@ -26,59 +26,23 @@ def next_def(i):
 
 spans = []
 
-
 def span(name, a, b):
     if a < 0:
         spans.append((name, -1, -1))
         return
     spans.append((name, max(0, a), min(n, b)))
 
-
-b = first(r"^local function Build\(")
-r = first(r"^function ns\.Refresh\(")
-p = first(r"^ns\.ShowPrestige *= *function")
-i0 = first(r"^function J\.Init\(")
-f = first(r"^local function FS\(")
-pc = first(r"^local function PowerCost\(")
-o = first(r"^J\.Odds *= *function")
-
-span("top", 0, 45)
-span("helpers", f, f + 160)
-span("cost+label", pc, pc + 55)
-span("Build", b, next_def(b))
-span("Refresh", r, next_def(r))
-span("ShowPrestige", p, p + 70)
-span("J.Init", i0, next_def(i0))
+m = first(r"^local function Money")
+span("Money", m, m + 25)
+pw = first(r"^local POWERS")
+span("POWERS", pw, pw + 70)
+o = first(r"^(function J\.Odds|J\.Odds *= *function)")
 span("J.Odds", o, next_def(o))
+s = first(r"^function J\.Sync")
+span("J.Sync", s, next_def(s))
 
-if b >= 0 and r > b:
-    for j in range(b, r):
-        if "for i, p in ipairs(POWERS)" in lines[j]:
-            span("shop loop", j - 10, j + 32)
-
-if i0 >= 0:
-    for j in range(i0, n):
-        if "C_Timer" in lines[j] or "OnUpdate" in lines[j]:
-            span("driver", j - 10, j + 24)
-
-start_odds = b if b >= 0 else 0
-for j in range(start_odds, n):
-    if "odds" in lines[j].lower():
-        span("odds mention", j - 6, j + 10)
-
-spans.sort(key=lambda s: s[1])
-merged = []
+out = ["DeathrollBaron.lua bar/shop context, %d lines total" % n]
 for name, a, e in spans:
-    if a < 0:
-        merged.append((name, -1, -1))
-        continue
-    if merged and merged[-1][0] != -1 and a <= merged[-1][2]:
-        merged[-1] = (merged[-1][0] + " / " + name, merged[-1][1], max(merged[-1][2], e))
-    else:
-        merged.append((name, a, e))
-
-out = ["DeathrollBaron.lua UI context, %d lines total" % n]
-for name, a, e in merged:
     if a < 0:
         out.append("\n== %s NOT FOUND ==" % name)
         continue
@@ -87,6 +51,6 @@ for name, a, e in merged:
         out.append("%4d| %s" % (k + 1, lines[k]))
 
 text = "\n".join(out)
-pathlib.Path("tools/visual_ctx.txt").write_text(text[:48000])
-pathlib.Path("tools/visual_ctx_tail.txt").write_text(text[-10000:])
-print("total %d chars, main 48000, tail 10000" % len(text))
+pathlib.Path("tools/visual_ctx.txt").write_text(text)
+pathlib.Path("tools/visual_ctx_tail.txt").write_text("")
+print("wrote %d chars" % len(text))
