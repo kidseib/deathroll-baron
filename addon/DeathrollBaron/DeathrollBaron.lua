@@ -342,6 +342,13 @@ local function PowerCost(p)
     return max(5, floor(floor(cost / 5 + 0.5) * 5))
 end
 
+-- one label for every shop button: Build and Refresh both call it, so the
+-- rank and the price can never drift apart
+local function PowerLabel(p, r, cost)
+    if r >= p.max then return p.name .. "  maxed" end
+    return ("%s  %d/%d   %s"):format(p.name, r, p.max, Money(cost or PowerCost(p)))
+end
+
 local function BuyPower(id)
     local p
     for _, q in ipairs(POWERS) do
@@ -1000,7 +1007,7 @@ local function Build()
     for i, p in ipairs(POWERS) do
         local col = (i - 1) % 2
         local row = floor((i - 1) / 2)
-        local b = Btn(frame, ("%s  %s"):format(p.name, Money(PowerCost(p))), 178, 24, 10, function(self)
+        local b = Btn(frame, PowerLabel(p, DB.powers[p.id] or 0), 178, 24, 10, function(self)
             BuyPower(self.powerId)
             BustCheck()
             ns.Refresh()
@@ -1351,11 +1358,11 @@ function ns.Refresh()
         if b then
             local r = DB.powers[p.id] or 0
             if r >= p.max then
-                b:SetText(p.name .. "  maxed")
+                b:SetText(PowerLabel(p, r))
                 b:SetEnabled(false)
             else
                 local cost = PowerCost(p)
-                b:SetText(("%s %d/%d   %s"):format(p.name, r, p.max, Money(cost)))
+                b:SetText(PowerLabel(p, r, cost))
                 b:SetEnabled(DB.gold >= cost and not DB.ended)
             end
         end
@@ -1634,7 +1641,6 @@ function J.Init()
     bar.text:SetWidth(376)
     bar.text:SetJustifyH("CENTER")
     J.bar = bar
-
 
     local glow = frame:CreateTexture(nil, "BACKGROUND", nil, 2)
     glow:SetAllPoints()
