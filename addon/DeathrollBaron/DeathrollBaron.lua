@@ -1869,7 +1869,7 @@ function J.Result(s)
         J.Burst(x, y, 20, true)
         J.Burst(0, 30, 12, true)
         J.Float(0, 100, "CHA-CHING!", 26, GOLD, 1.3)
-                J.Float(0, 66, "you take " .. Money(s.payout or 0), 16, GREEN, 1.3)
+        J.Float(0, 66, "you take " .. Money(s.payout or 0), 16, GREEN, 1.3)
         J.Float(0, 274, "+" .. Money(s.payout or 0), 13, GREEN, 1.1)
         J.glowA = 0.26
         J.goldScale = 1.35
