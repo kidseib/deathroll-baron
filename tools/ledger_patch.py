@@ -5,7 +5,13 @@ path = pathlib.Path("addon/DeathrollBaron/DeathrollBaron.lua")
 src = path.read_text()
 
 if "local ledger" in src:
-    raise SystemExit("already applied")
+    bad = "                J.Float(0, 66,"
+    good = "        J.Float(0, 66,"
+    if src.count(bad) == 1:
+        path.write_text(src.replace(bad, good))
+        print("fixed payout indent")
+        raise SystemExit(0)
+    raise SystemExit("already applied (%d)" % src.count(bad))
 
 
 def swap(old, new, label):
