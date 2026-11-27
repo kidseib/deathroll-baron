@@ -40,6 +40,23 @@ shasum -a 256 DeathrollBaron-0.0.14-beta.1.zip
 
 ---
 
+## Install
+
+1. Extract the release zip so the folder layout is:
+
+   ```text
+   World of Warcraft\_forever_\Interface\AddOns\DeathrollBaron\DeathrollBaron.toc
+   World of Warcraft\_forever_\Interface\AddOns\DeathrollBaron\DeathrollBaron.lua
+   ```
+
+2. Restart the client (a brand-new addon needs a full restart; after that `/reload` is enough).
+3. Type `/drb` in game.
+
+The addon declares `## Interface: 16001`, the Forever client value (1.60.1). If a patch moves it,
+`/dump select(4, GetBuildInfo())` reports what your client expects.
+
+---
+
 ## What it is
 
 You run a table in a back-alley gambling den. No swords, no spells — dice. You sit down opposite a
