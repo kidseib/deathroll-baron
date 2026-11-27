@@ -83,7 +83,7 @@ once('''    local ptitle = FS(prestigeFrame, BLOOD, 16)
 # 5. one panel, two entry points: death screen or crown shop
 once('''ns.ShowPrestige = function(earned)
     if not prestigeFrame then return end
-    W.pCrowns:SetText(("+%d Bone Crowns   (you hold %d"):format(earned or DB.lastCrowns, DB.crowns))
+    W.pCrowns:SetText(("+%d Bone Crowns   (you hold %d)"):format(earned or DB.lastCrowns, DB.crowns))
 ''', '''ns.ShowPrestige = function(earned)
     if not prestigeFrame then return end
 
@@ -100,7 +100,7 @@ once('''ns.ShowPrestige = function(earned)
     if W.pAgain then W.pAgain:SetShown(DB.ended) end
     if W.pClose then W.pClose:SetShown(not DB.ended) end
     if DB.ended then
-        W.pCrowns:SetText(("+%d Bone Crowns   (you hold %d"):format(earned or DB.lastCrowns, DB.crowns))
+        W.pCrowns:SetText(("+%d Bone Crowns   (you hold %d)"):format(earned or DB.lastCrowns, DB.crowns))
     else
         W.pCrowns:SetText(("you hold %d Bone Crowns"):format(DB.crowns))
     end
