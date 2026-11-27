@@ -1833,12 +1833,15 @@ function J.Init()
     plate:SetColorTexture(0.035, 0.030, 0.024, 0.80)
 
     pot.coins = {}
-    for i = 1, 4 do
+    -- stake tiers: 3 coins, then one more at 10s, 1g and 10g.
+    -- The label still carries the exact amount.
+    for i = 1, 6 do
         local c = pot.body:CreateTexture(nil, "OVERLAY", nil, i)
         c:SetTexture(i % 2 == 0 and J.COIN2 or J.COIN)
         c:SetSize(18, 18)
         c:SetPoint("CENTER", pot.body, "CENTER", (i % 2 == 0) and 1 or -1, -16 + (i - 1) * 4)
         c:SetAlpha(1)
+        c:Hide()
         pot.coins[i] = c
     end
     pot.label = FS(pot.body, GOLD, 10)
@@ -2318,6 +2321,13 @@ function J.Pot()
         stake = ns.wager or 0
     end
     J.pot.label:SetText(Money(stake))
+    local coins = 3
+    if stake >= 100000 then coins = 6
+    elseif stake >= 10000 then coins = 5
+    elseif stake >= 1000 then coins = 4 end
+    for i = 1, #J.pot.coins do
+        if i <= coins then J.pot.coins[i]:Show() else J.pot.coins[i]:Hide() end
+    end
 end
 
 function J.PotReset()
