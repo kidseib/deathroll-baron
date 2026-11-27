@@ -24,7 +24,7 @@ swap(
         pot.coins[i] = c
     end''',
     '''    pot.coins = {}
-    -- the stack reads the stake: 3 coins, then one more at 10s, 1g and 10g.
+    -- stake tiers: 3 coins, then one more at 10s, 1g and 10g.
     -- The label still carries the exact amount.
     for i = 1, 6 do
         local c = pot.body:CreateTexture(nil, "OVERLAY", nil, i)
