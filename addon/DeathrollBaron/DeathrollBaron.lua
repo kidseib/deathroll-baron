@@ -777,6 +777,12 @@ local function Panel(parent, w, h, borderColor)
     return f
 end
 
+local function CrownLabel(n)
+    n = n or 0
+    if n == 1 then return "1 crown" end
+    return Comma(n) .. " crowns"
+end
+
 -- the tour copy: five lines, each sized to sit in one slot at 11pt
 local TOUR = {
     "A deathroll opens at 1-100. You trade rolls inside a shrinking range, and whoever rolls a 1 pays the pot.",
@@ -848,6 +854,19 @@ local function Build()
     -- reopens the tour; the splash itself only auto-shows once
     W.help = Btn(frame, "?", 18, 18, 11, function() ShowWelcome() end)
     W.help:SetPoint("TOPRIGHT", -38, -8)
+
+    -- crowns are spendable any time, not just when the table takes you
+    W.crowns = Btn(frame, CrownLabel(DB.crowns), 92, 18, 10, function()
+        if ns.ShowPrestige then ns.ShowPrestige(DB.lastCrowns) end
+    end)
+    W.crowns:SetPoint("TOPRIGHT", -38, -36)
+    W.crowns:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:AddLine("Bone Crowns", GOLD[1], GOLD[2], GOLD[3])
+        GameTooltip:AddLine("Earned when the table takes you. Click to spend them on permanent upgrades.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    W.crowns:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     W.gold = FS(frame, GOLD, 22)
     W.gold:SetPoint("TOPLEFT", 16, -38)
@@ -1061,6 +1080,15 @@ local function Build()
     local ptitle = FS(prestigeFrame, BLOOD, 16)
     ptitle:SetPoint("TOP", 0, -18)
     ptitle:SetText("THE TABLE TAKES YOU")
+    W.pTitle = ptitle
+
+    -- mid-run the panel needs a way out that is not "start a new run"
+    W.pClose = CreateFrame("Button", nil, prestigeFrame, "UIPanelCloseButton")
+    W.pClose:SetPoint("TOPRIGHT", -3, -3)
+    W.pClose:SetScript("OnClick", function()
+        prestigeFrame:Hide()
+        ns.Refresh()
+    end)
 
     W.pCrowns = FS(prestigeFrame, GOLD, 14)
     W.pCrowns:SetPoint("TOP", 0, -44)
@@ -1217,10 +1245,10 @@ function ns.Refresh()
     end
 
     W.gold:SetText(Money(DB.gold))
-    local crowns = DB.crowns > 0 and ("   " .. DB.crowns .. " crowns") or ""
     local streak = (DB.streak or 0) >= 3 and ("   " .. DB.streak .. " in a row") or ""
-    W.sub:SetText(("peak %s%s%s    run %d    %dW/%dL"):format(
-        Money(DB.peak), crowns, streak, DB.runs + 1, DB.wins, DB.losses))
+    W.sub:SetText(("peak %s%s    run %d    %dW/%dL"):format(
+        Money(DB.peak), streak, DB.runs + 1, DB.wins, DB.losses))
+    if W.crowns then W.crowns:SetText(CrownLabel(DB.crowns)) end
 
     W.npc:SetText(("%d/%d  %s"):format(ns.selectedRung, #NPCS, cfg.name))
     W.npcInfo:SetText(("%s   .   level %s   .   purse %s"):format(
@@ -1371,7 +1399,25 @@ end
 
 ns.ShowPrestige = function(earned)
     if not prestigeFrame then return end
-    W.pCrowns:SetText(("+%d Bone Crowns   (you hold %d)"):format(earned or DB.lastCrowns, DB.crowns))
+
+    -- the same panel serves the death screen and the crown button
+    if W.pTitle then
+        if DB.ended then
+            W.pTitle:SetText("THE TABLE TAKES YOU")
+            W.pTitle:SetTextColor(BLOOD[1], BLOOD[2], BLOOD[3])
+        else
+            W.pTitle:SetText("BONE CROWNS")
+            W.pTitle:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+        end
+    end
+    if W.pAgain then W.pAgain:SetShown(DB.ended) end
+    if W.pClose then W.pClose:SetShown(not DB.ended) end
+    if DB.ended then
+        W.pCrowns:SetText(("+%d Bone Crowns   (you hold %d)"):format(earned or DB.lastCrowns, DB.crowns))
+    else
+        W.pCrowns:SetText(("you hold %d Bone Crowns"):format(DB.crowns))
+    end
+    if W.crowns then W.crowns:SetText(CrownLabel(DB.crowns)) end
     for i, e in ipairs(PRESTIGE) do
         local b = W.prestige[i]
         if b then
