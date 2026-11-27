@@ -436,7 +436,12 @@ local function FinishMatch(result)
         DB.streak = (DB.streak or 0) + 1
         s.payout = payout
         s.net = payout - s.wager
-        LogLine(s, "win", "You take " .. Money(payout) .. " (net " .. Signed(s.net) .. ").")
+        local tax = floor(gross * c.winTax)
+        local ledger = "pot " .. Money(gross)
+        if tax > 0 then ledger = ledger .. ", house " .. Money(tax) end
+        if payout < gross - tax then ledger = ledger .. ", limit " .. Money(c.purse) end
+        ledger = ledger .. ", net " .. Signed(s.net)
+        LogLine(s, "win", ledger)
         if DB.debt > 0 then
             local pay = min(DB.debt, DB.gold)
             DB.gold = DB.gold - pay
@@ -455,7 +460,10 @@ local function FinishMatch(result)
         DB.streak = 0
         s.loss = loss
         s.net = -loss
-        LogLine(s, "lose", "You pay " .. Money(loss) .. ".")
+        local ledger = "pot " .. Money(s.wager) .. ", pay " .. Money(loss)
+        if loss < s.wager then ledger = ledger .. ", kept " .. Money(s.wager - loss) end
+        ledger = ledger .. ", net " .. Signed(s.net)
+        LogLine(s, "lose", ledger)
         Flash(BLOOD[1], BLOOD[2], BLOOD[3])
     end
 
@@ -1861,7 +1869,8 @@ function J.Result(s)
         J.Burst(x, y, 20, true)
         J.Burst(0, 30, 12, true)
         J.Float(0, 100, "CHA-CHING!", 26, GOLD, 1.3)
-        J.Float(0, 66, "you take " .. Money(s.payout or 0), 16, GREEN, 1.3)
+                J.Float(0, 66, "you take " .. Money(s.payout or 0), 16, GREEN, 1.3)
+        J.Float(0, 274, "+" .. Money(s.payout or 0), 13, GREEN, 1.1)
         J.glowA = 0.26
         J.goldScale = 1.35
         if J.glow then J.glow:SetColorTexture(1, 0.84, 0.28, 1) end
@@ -2164,6 +2173,9 @@ function J.Sync()
         J.lastP, J.lastE = nil, nil
         J.scaleYou, J.scaleThem = 1, 1
         J.span, J.done, J.hold = nil, nil, nil
+        if s and not s.finished and s.wager then
+            J.Float(0, 258, "-" .. Money(s.wager), 13, RED, 0.9)
+        end
     end
     if not s then return end
 
