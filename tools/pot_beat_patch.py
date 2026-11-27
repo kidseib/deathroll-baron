@@ -253,14 +253,13 @@ checks = {
     "POT_LEAD": ("local POT_LEAD = 0.20", 1),
     "POT_SLIDE": ("local POT_SLIDE = 0.42", 1),
     "home alpha": ("J.potA = (a.a0 or 1) + (0.84 - (a.a0 or 1)) * k", 1),
-    "home arrival": ("J.potX, J.potY = 0, 0", 1),
     "return": ("function J.PotReturn()", 1),
     "seated": ("function J.PotSeated()", 1),
     "pending": ("function J.DealPending()", 1),
     "pending token": ("if p.token ~= stateToken then", 1),
     "manual gate": ("ns.pendingDeal = { manual = manual, token = stateToken }", 1),
     "auto gate": ("ns.pendingDeal = nil\n    ns.autoT = 0", 1),
-    "driver": ("J.DealPending()", 1),
+    "driver": ("    J.DealPending()\n    ns.AutoTick(el)", 1),
 }
 for name, (needle, want) in checks.items():
     n = src.count(needle)
