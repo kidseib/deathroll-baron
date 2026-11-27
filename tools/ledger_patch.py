@@ -1,5 +1,4 @@
 import pathlib
-import re
 
 path = pathlib.Path("addon/DeathrollBaron/DeathrollBaron.lua")
 src = path.read_text()
@@ -17,22 +16,16 @@ def swap(old, new, label):
     print("ok", label)
 
 
-win_old = re.compile(
-    r'        LogLine\(s, "win", "You take " \.\.\n\s*'
-    r'Money\(payout\) \.\. " \(net " \.\. Signed\(s\.net\) \.\. "\)\."\)'
-)
-win_new = '''        local tax = floor(gross * c.winTax)
+swap(
+    '''        LogLine(s, "win", "You take " .. Money(payout) .. " (net " .. Signed(s.net) .. ").")''',
+    '''        local tax = floor(gross * c.winTax)
         local ledger = "pot " .. Money(gross)
         if tax > 0 then ledger = ledger .. ", house " .. Money(tax) end
         if payout < gross - tax then ledger = ledger .. ", limit " .. Money(c.purse) end
         ledger = ledger .. ", net " .. Signed(s.net)
-        LogLine(s, "win", ledger)'''
-
-src, n = win_old.subn(lambda m: win_new, src, count=1)
-if n != 1:
-    i = src.find('LogLine(s, "win"')
-    raise SystemExit("win ledger: %d matches\n%s" % (n, repr(src[i:i + 220])))
-print("ok win ledger")
+        LogLine(s, "win", ledger)''',
+    "win ledger",
+)
 
 swap(
     '''        LogLine(s, "lose", "You pay " .. Money(loss) .. ".")''',
