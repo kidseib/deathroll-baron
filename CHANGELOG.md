@@ -10,6 +10,32 @@ versioning is [SemVer](https://semver.org/).
 - Wager slider to replace the stepper (needs a thumb texture).
 - Challenge your current target; addon-vs-addon multiplayer.
 
+## [0.0.14-beta.1] — 2026-11-27
+
+The table gets dressed, and the pot learns to stack. This is the first build published as a beta;
+0.1.0 stays gated on the live-client checklist.
+
+### Added
+
+- **A felt band and a brass seam.** A 72px felt surface sits behind both roll panels, inset 4px
+  from the frame, so the board reads as a table instead of two floating boxes. A single 1px brass
+  hairline runs the full height of the felt at the panel seam; the existing divider was widened and
+  brightened rather than duplicated.
+- **The pot stacks by stake tier.** Three coins at a copper stake, then a fourth at 1g, a fifth at
+  10g and a sixth at 100g. The exact amount still sits on the label.
+
+### Changed
+
+- **The pot crosses the board instead of sliding through it.** On the winning side's roll it lifts
+  in a shallow arc, shrinks and fades slightly at the crossing, then settles on the winner.
+- **Version:** the addon declares `0.0.14-beta.1` in the TOC and the release is marked as a
+  prerelease. The zip and its `.sha256` are built by the release workflow.
+
+### Note
+
+Schema stays 5. `OddsUpTo` / `WinChance`, the match engine and the save format are untouched.
+Still never played in game; this is a beta, not 0.1.0.
+
 ## [0.0.12] — 2026-11-26
 
 One pause, one number, one reel that lands.
