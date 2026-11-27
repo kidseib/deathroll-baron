@@ -293,7 +293,7 @@ end
 ---------------------------------------------------------------------
 -- match configuration
 ---------------------------------------------------------------------
-local function BuildConfig(rung)
+local function BuildConfig(rung, powers)
     local n = NPCS[rung]
     local c = {
         rung = rung, name = n[1], zone = n[2], level = n[3],
@@ -310,7 +310,7 @@ local function BuildConfig(rung)
     c.playerLuck = c.playerLuck + 0.02 * (DB.prestige.bloodline or 0)
 
     for _, p in ipairs(POWERS) do
-        local r = DB.powers[p.id] or 0
+        local r = (powers or DB.powers)[p.id] or 0
         if p.apply and r > 0 then p.apply(c, r) end
     end
 
@@ -1065,6 +1065,7 @@ local function Build()
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine(p.name, GOLD[1], GOLD[2], GOLD[3])
             GameTooltip:AddLine(p.desc, 1, 1, 1, true)
+            if ns.ShopPreview then ns.ShopPreview(p) end
             GameTooltip:Show()
         end)
         b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1897,6 +1898,56 @@ local function BarSigned(c)
     c = floor((c or 0) + 0.5)
     if c < 0 then return "-" .. BarMoney(-c) end
     return "+" .. BarMoney(c)
+end
+
+-- shop hover: what the next rank does at the current stake. Read-only:
+-- BuildConfig gets a copied powers table, and the solver is only read.
+ns.ShopPreview = function(p)
+    local r = DB.powers[p.id] or 0
+    if r >= p.max then
+        GameTooltip:AddLine("maxed", DIM[1], DIM[2], DIM[3])
+        return
+    end
+    if DB.ended then return end
+
+    local rung = min(DB.bestRung or 1, max(1, ns.selectedRung or 1))
+    GameTooltip:AddLine(("next rank %d/%d  .  %s"):format(r + 1, p.max, Money(PowerCost(p))),
+        GOLD[1], GOLD[2], GOLD[3])
+
+    if not p.apply then
+        GameTooltip:AddLine("no direct odds or money change", DIM[1], DIM[2], DIM[3])
+    else
+        local copy = {}
+        for k, v in pairs(DB.powers) do copy[k] = v end
+        copy[p.id] = r + 1
+        local cur = BuildConfig(rung)
+        local nxt = BuildConfig(rung, copy)
+        local wager = ns.wager or cur.minWager
+
+        local function stats(c)
+            local chance = WinChance(c, false) or 0
+            if chance < 0 then chance = 0 end
+            if chance > 1 then chance = 1 end
+            local gross = floor(wager * c.mult)
+            local payout = max(0, min(gross - floor(gross * c.winTax), c.purse))
+            local risk = floor(wager * c.lossMult * c.lossFrac)
+            local ev = chance * (payout - wager) - (1 - chance) * risk
+            return chance, payout, risk, ev
+        end
+
+        local c1, p1, r1, e1 = stats(cur)
+        local c2, p2, r2, e2 = stats(nxt)
+        GameTooltip:AddLine(("odds %d%% -> %d%%   pays %s -> %s"):format(
+            floor(c1 * 100 + 0.5), floor(c2 * 100 + 0.5), Money(p1), Money(p2)),
+            BONE[1], BONE[2], BONE[3], true)
+        local ec = e2 > e1 and GREEN or (e2 < e1 and RED or BONE)
+        GameTooltip:AddLine(("risk %s -> %s   EV %s -> %s"):format(
+            Money(r1), Money(r2), Signed(e1), Signed(e2)), ec[1], ec[2], ec[3], true)
+    end
+
+    if state and not state.finished then
+        GameTooltip:AddLine("applies next hand", DIM[1], DIM[2], DIM[3])
+    end
 end
 
 function J.Odds()
