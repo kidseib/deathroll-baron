@@ -1,4 +1,5 @@
 import pathlib
+import re
 
 path = pathlib.Path("addon/DeathrollBaron/DeathrollBaron.lua")
 src = path.read_text()
@@ -55,12 +56,16 @@ swap(
     "stake float",
 )
 
-swap(
-    '''            J.Float(0, 66, "you take " .. Money(s.payout or 0), 16, GREEN, 1.3)''',
-    '''            J.Float(0, 66, "you take " .. Money(s.payout or 0), 16, GREEN, 1.3)
-            J.Float(0, 274, "+" .. Money(s.payout or 0), 13, GREEN, 1.1)''',
-    "payout float",
+payout = re.compile(
+    r'J\.Float\(0, 66, "you take " \.\.\s*Money\(s\.payout or 0\), 16, GREEN, 1\.3\)'
 )
+payout_new = '''        J.Float(0, 66, "you take " .. Money(s.payout or 0), 16, GREEN, 1.3)
+        J.Float(0, 274, "+" .. Money(s.payout or 0), 13, GREEN, 1.1)'''
+src, n = payout.subn(lambda m: payout_new, src, count=1)
+if n != 1:
+    i = src.find('you take "')
+    raise SystemExit("payout float: %d matches\n%s" % (n, repr(src[i - 80:i + 120])))
+print("ok payout float")
 
 path.write_text(src)
 print("patched")
