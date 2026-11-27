@@ -898,8 +898,6 @@ local function Build()
 
     W.range = FS(frame, DIM, 11)
     W.range:SetPoint("TOP", 0, -252)
-    W.luck = FS(frame, GOLD, 11)
-    W.luck:SetPoint("TOP", 0, -268)
 
     for i = 1, 6 do
         local fs = FS(frame, BONE, 11)
@@ -1002,7 +1000,7 @@ local function Build()
     for i, p in ipairs(POWERS) do
         local col = (i - 1) % 2
         local row = floor((i - 1) / 2)
-        local b = Btn(frame, p.name, 178, 24, 10, function(self)
+        local b = Btn(frame, ("%s  %s"):format(p.name, Money(PowerCost(p))), 178, 24, 10, function(self)
             BuyPower(self.powerId)
             BustCheck()
             ns.Refresh()
@@ -1280,26 +1278,16 @@ function ns.Refresh()
         W.range:SetTextColor(DIM[1], DIM[2], DIM[3])
     end
 
-    -- the odds line: the actual chance you take this hand, given both sides'
-    -- luck and who is holding the dice right now
-    local oddsCfg = live and state.cfg or cfg
-    local chance = WinChance(oddsCfg, live)
-    local odds = floor(chance * 100 + 0.5)
-    W.luck:SetText(("ODDS %d%%   .   luck you %s / them %s   .   payout x%.2f"):format(
-        odds, Pct(oddsCfg.playerLuck), Pct(oddsCfg.enemyLuck), oddsCfg.mult))
-    if odds >= 55 then
-        W.luck:SetTextColor(GREEN[1], GREEN[2], GREEN[3])
-    elseif odds <= 45 then
-        W.luck:SetTextColor(RED[1], RED[2], RED[3])
-    else
-        W.luck:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-    end
-
     local entries = {}
     if state then
         for i = max(1, #state.log - 5), #state.log do
             entries[#entries + 1] = state.log[i]
         end
+    end
+    if #entries == 0 then
+        entries[1] = { kind = "dim", text = "the table is quiet." }
+        entries[2] = { kind = "dim", text = "you want the low roll. they want the high one." }
+        entries[3] = { kind = "dim", text = "gold buys cheats. crowns buy permanence." }
     end
     for i = 1, 6 do
         local e = entries[i]
@@ -1315,6 +1303,8 @@ function ns.Refresh()
                 W.log[i]:SetTextColor(0.85, 0.30, 0.26)
             elseif e.kind == "bank" then
                 W.log[i]:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+            elseif e.kind == "dim" then
+                W.log[i]:SetTextColor(DIM[1], DIM[2], DIM[3])
             else
                 W.log[i]:SetTextColor(BONE[1], BONE[2], BONE[3])
             end
@@ -1614,6 +1604,13 @@ function J.Init()
     J.scaleYou, J.scaleThem, J.goldScale, J.glowA = 1, 1, 1, 0
     J.parts, J.texts = {}, {}
 
+    -- juice draws on a frame above every child panel: a FontString parented
+    -- straight to `frame` sits under the roll panels and their dark fills
+    local fx = CreateFrame("Frame", nil, frame)
+    fx:SetAllPoints(frame)
+    fx:SetFrameLevel(frame:GetFrameLevel() + 12)
+    J.fx = fx
+
     -- the odds bar: the one number the whole game hangs on
     -- range line ends about -266, bar runs -269..-285, log starts -288:
     -- 3pt clear above and below. 18pt at -264 touched the range line.
@@ -1634,9 +1631,10 @@ function J.Init()
     mid:SetColorTexture(1, 1, 1, 0.16)
     bar.text = FS(bar, GOLD, 11)
     bar.text:SetPoint("CENTER")
+    bar.text:SetWidth(376)
+    bar.text:SetJustifyH("CENTER")
     J.bar = bar
 
-    if W.luck then W.luck:Hide() end
 
     local glow = frame:CreateTexture(nil, "BACKGROUND", nil, 2)
     glow:SetAllPoints()
@@ -1645,7 +1643,7 @@ function J.Init()
     J.glow = glow
 
     for i = 1, 44 do
-        local t = frame:CreateTexture(nil, "OVERLAY", nil, 3)
+        local t = J.fx:CreateTexture(nil, "OVERLAY", nil, 3)
         t:SetTexture(J.WHITE)
         t:SetSize(10, 10)
         t:Hide()
@@ -1653,8 +1651,8 @@ function J.Init()
     end
 
     for i = 1, 6 do
-        local fs = FS(frame, GOLD, 20)
-        fs:SetPoint("CENTER", frame, "CENTER", 0, 0)
+        local fs = FS(J.fx, GOLD, 20)
+        fs:SetPoint("CENTER", J.fx, "CENTER", 0, 0)
         fs:SetAlpha(0)
         fs:SetText("")
         J.texts[i] = { fs = fs, life = 0, x = 0, y = 0, vy = 0 }
@@ -1691,7 +1689,7 @@ function J.Burst(x, y, n, big)
             end
             p.tex:SetAlpha(1)
             p.tex:SetScale(1)
-            p.tex:SetPoint("CENTER", frame, "CENTER", p.x, p.y)
+            p.tex:SetPoint("CENTER", J.fx, "CENTER", p.x, p.y)
             p.tex:Show()
         end
     end
@@ -1706,7 +1704,7 @@ function J.Float(x, y, str, size, color, life)
             if path then t.fs:SetFont(path, size or 18, flags) end
             t.fs:SetText(str)
             t.fs:SetTextColor(color[1], color[2], color[3])
-            t.fs:SetPoint("CENTER", frame, "CENTER", x, y)
+            t.fs:SetPoint("CENTER", J.fx, "CENTER", x, y)
             t.fs:SetAlpha(1)
             t.x, t.y = x, y
             t.vy = 48
@@ -1815,7 +1813,7 @@ function J.Step(el)
                 p.y = p.y + p.vy * el
                 local k = p.life / p.max
                 p.tex:ClearAllPoints()
-                p.tex:SetPoint("CENTER", frame, "CENTER", p.x, p.y)
+                p.tex:SetPoint("CENTER", J.fx, "CENTER", p.x, p.y)
                 p.tex:SetAlpha(min(1, k * 1.6))
                 p.tex:SetScale(0.55 + 0.75 * k)
             end
@@ -1833,7 +1831,7 @@ function J.Step(el)
                 t.vy = t.vy * (1 - el * 1.4)
                 t.fs:SetAlpha(min(1, t.life / 0.45))
                 t.fs:ClearAllPoints()
-                t.fs:SetPoint("CENTER", frame, "CENTER", t.x, t.y)
+                t.fs:SetPoint("CENTER", J.fx, "CENTER", t.x, t.y)
             end
         end
     end
@@ -2019,11 +2017,22 @@ end
 local jdriver = CreateFrame("Frame")
 jdriver:SetScript("OnUpdate", function(_, el)
     if not J.ready then
-        if frame and W.youNum and W.gold then J.Init() end
+        if frame and W.youNum and W.gold then
+            J.Init()
+            J.Odds()
+        end
         return
     end
     J.Step(el)
     ns.AutoTick(el)
+    -- the bar has its own clock: a refresh that never fires cannot blank it
+    if frame and frame:IsShown() then
+        J.oddsT = (J.oddsT or 0) + el
+        if J.oddsT >= 0.20 then
+            J.oddsT = 0
+            J.Odds()
+        end
+    end
 end)
 
 ---------------------------------------------------------------------
