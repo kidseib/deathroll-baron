@@ -1,0 +1,18 @@
+name: temp-coin-inspect
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/temp-coin-inspect.yml
+
+jobs:
+  show:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show the pot coins
+        run: |
+          grep -n 'coin\|pot.label\|J.pot =\|function J.Pot' addon/DeathrollBaron/DeathrollBaron.lua | head -80
+          echo '--- pot block ---'
+          sed -n '1900,2085p' addon/DeathrollBaron/DeathrollBaron.lua
