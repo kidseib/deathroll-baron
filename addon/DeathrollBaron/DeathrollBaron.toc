@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: Deathroll Baron
-## Notes: A deathroll incremental. Gamble your bankroll against 30 real Azeroth NPCs.
+## Notes: A deathroll gambling incremental for WoW: Forever. 30 Azeroth NPCs, fresh cheats each run, exact odds, virtual gold.
 ## Author: ErrorSeiB
-## Version: 0.0.13
+## Version: 0.0.14-beta.1
 ## SavedVariables: DeathrollBaronDB
 ## IconTexture: Interface\Icons\INV_Misc_Dice_02
 ## AddonCompartmentFunc: DeathrollBaron_CompartmentClick
