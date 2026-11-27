@@ -2062,7 +2062,15 @@ function J.Step(el)
             k = k * k * (3 - 2 * k)
             J.potX = a.x0 + (a.x1 - a.x0) * k
             J.potY = a.y0 + (a.y1 - a.y0) * k
+            if a.arc then
+                J.potY = J.potY + math.sin(k * math.pi) * a.arc
+            end
             J.pot.body:SetPoint("CENTER", J.pot, "CENTER", J.potX, J.potY)
+            if a.shrink then
+                local bump = max(0, 1 - math.abs(k - a.cross) / a.span)
+                J.pot.body:SetScale(1 - 0.24 * bump)
+                J.pot.body:SetAlpha((J.potA or 1) * (1 - 0.30 * bump))
+            end
             if a.fade then
                 J.potA = (a.a0 or 1) * (1 - k)
                 J.pot.body:SetAlpha(J.potA)
@@ -2072,6 +2080,7 @@ function J.Step(el)
             end
             if k >= 1 then
                 J.potAnim = nil
+                J.pot.body:SetScale(1)
                 if a.fade then
                     J.pot.body:Hide()
                     J.potHidden = true
@@ -2184,6 +2193,10 @@ local HOLD = 0.72
 local POT_LEAD = 0.20
 local POT_SLIDE = 0.42
 local SLAM_TIME = 0.16
+-- the slide lifts and softens only while it crosses the winner's roll
+local POT_ARC = 10
+local POT_CROSS = 0.58
+local POT_CROSS_W = 0.24
 -- About six frames at 60fps: the time a settled number needs on screen
 -- before the next roll repaints the panel.
 local REEL_READ = 0.10
@@ -2315,6 +2328,7 @@ function J.PotReset()
     J.potHidden = false
     J.pot.body:SetPoint("CENTER", J.pot, "CENTER", 0, 0)
     J.pot.body:Show()
+    J.pot.body:SetScale(1)
     J.potA = 0.84
     J.pot.body:SetAlpha(J.potA)
 end
@@ -2331,6 +2345,7 @@ end
 
 function J.PotSink()
     if not J.pot then return end
+    J.pot.body:SetScale(1)
     J.potAtWinner = true
     J.potAnim = {
         x0 = J.potX or 0,
@@ -2358,6 +2373,7 @@ function J.PotSlide(won)
     if not J.pot then return end
     J.potHidden = false
     J.pot.body:Show()
+    J.pot.body:SetScale(1)
     J.potAtWinner = true
     J.potAnim = {
         x0 = J.potX or 0,
@@ -2366,6 +2382,10 @@ function J.PotSlide(won)
         y1 = -2,
         t = 0,
         dur = POT_SLIDE,
+        arc = POT_ARC,
+        cross = POT_CROSS,
+        span = POT_CROSS_W,
+        shrink = true,
     }
 end
 
@@ -2383,6 +2403,7 @@ function J.PotReturn()
         return
     end
     if J.potAnim then return end
+    J.pot.body:SetScale(1)
     if (J.potX or 0) == 0 and (J.potY or 0) == 0 then
         J.potAtWinner = false
         J.Pot()
