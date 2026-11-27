@@ -918,6 +918,14 @@ local function Build()
         W.affix[i] = fs
     end
 
+    -- the felt band: the table surface under both panels. The panels cover
+    -- most of it; only the seam and a thin margin show.
+    local felt = frame:CreateTexture(nil, "BACKGROUND", nil, 1)
+    felt:SetPoint("TOPLEFT", 4, -180)
+    felt:SetPoint("TOPRIGHT", -4, -180)
+    felt:SetHeight(72)
+    felt:SetColorTexture(0.060, 0.085, 0.070, 0.72)
+
     -- the board: two panels, your roll and theirs, never one shared number
     W.youPanel = Panel(frame, 184, 64, GOLD)
     W.youPanel:SetPoint("TOPLEFT", 8, -184)
@@ -1806,10 +1814,11 @@ function J.Init()
 
     -- the pot: a small stack of coins on the board seam, above both panels.
     -- The seam anchor stays fixed; only the inner body slides to the winner.
+    -- one brass hairline at the seam, the only divider between the panels
     local rail = J.fx:CreateTexture(nil, "BACKGROUND", nil, 1)
-    rail:SetSize(1, 68)
+    rail:SetSize(1, 72)
     rail:SetPoint("CENTER", W.youPanel, "TOPRIGHT", 8, -32)
-    rail:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.30)
+    rail:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.42)
 
     local pot = CreateFrame("Frame", nil, J.fx)
     pot:SetSize(26, 50)
