@@ -1812,14 +1812,14 @@ function J.Init()
         J.texts[i] = { fs = fs, life = 0, x = 0, y = 0, vy = 0 }
     end
 
-    -- the pot: a small stack of coins on the board seam, above both panels.
-    -- The seam anchor stays fixed; only the inner body slides to the winner.
     -- one brass hairline at the seam, the only divider between the panels
     local rail = J.fx:CreateTexture(nil, "BACKGROUND", nil, 1)
     rail:SetSize(1, 72)
     rail:SetPoint("CENTER", W.youPanel, "TOPRIGHT", 8, -32)
     rail:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.42)
 
+    -- the pot: a small stack of coins on the board seam, above both panels.
+    -- The seam anchor stays fixed; only the inner body slides to the winner.
     local pot = CreateFrame("Frame", nil, J.fx)
     pot:SetSize(26, 50)
     pot:SetPoint("CENTER", W.youPanel, "TOPRIGHT", 8, -30)
