@@ -1803,7 +1803,7 @@ function J.Init()
     local rail = J.fx:CreateTexture(nil, "BACKGROUND", nil, 1)
     rail:SetSize(1, 68)
     rail:SetPoint("CENTER", W.youPanel, "TOPRIGHT", 8, -32)
-    rail:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.22)
+    rail:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.30)
 
     local pot = CreateFrame("Frame", nil, J.fx)
     pot:SetSize(26, 50)
@@ -2452,7 +2452,7 @@ function ns.AutoTick(el)
         return
     end
     ns.autoT = ns.autoT + el
-    if ns.autoT < ns.AutoPause(s) or J.hold then return end
+    if ns.autoT < ns.AutoPause(s) or J.hold or J.potAnim or J.coinAnim then return end
     ns.autoT = 0
     if not StartMatch(ns.selectedRung, ns.wager, false) then ns.auto = false end
     ns.Refresh()
