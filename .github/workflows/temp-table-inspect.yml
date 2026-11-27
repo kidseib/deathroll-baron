@@ -13,6 +13,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Show the board
         run: |
-          grep -n 'rail\|youPanel\|themPanel\|Panel(frame\|panel' addon/DeathrollBaron/DeathrollBaron.lua | head -80
+          grep -n 'frame:SetSize\|function Panel' addon/DeathrollBaron/DeathrollBaron.lua
           echo '--- board block ---'
-          sed -n '1250,1435p' addon/DeathrollBaron/DeathrollBaron.lua
+          sed -n '870,975p' addon/DeathrollBaron/DeathrollBaron.lua
