@@ -54,7 +54,7 @@ end''',
 )
 
 checks = {
-    "six textures": ("for i = 1, 6 do", 2),
+    "six textures": ("for i = 1, 6 do", 4),
     "stake tiers": ("stake tiers: 3 coins", 1),
     "tier six": ("if stake >= 100000 then coins = 6", 1),
     "exact label": ("J.pot.label:SetText(Money(stake))", 1),
