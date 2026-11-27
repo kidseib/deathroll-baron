@@ -1,6 +1,7 @@
 import pathlib
 import re
 
+# Applies the staggered hand-end beat and the pre-deal pot gate.
 path = pathlib.Path("addon/DeathrollBaron/DeathrollBaron.lua")
 src = path.read_text()
 
